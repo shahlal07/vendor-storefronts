@@ -62,7 +62,7 @@ export async function uploadPaymentProof(
   // Notify the owning vendor from trusted order/vendor records, not a client-supplied address.
   const { data: order } = await supabase
     .from("orders")
-    .select("total, vendor_id, customer_id")
+    .select("total, vendor_id, customer_id, delivery")
     .eq("order_number", orderNumber)
     .maybeSingle();
   if (order?.vendor_id) {
@@ -78,7 +78,7 @@ export async function uploadPaymentProof(
         to: vendorEmail,
         orderNumber,
         total: Number(order.total ?? 0),
-        customerEmail: customer?.email ?? "Customer",
+        customerEmail: customer?.email ?? (order.delivery as { email?: string } | null)?.email ?? "Customer",
       }));
     } else {
       console.warn(`[email] Payment proof saved for order ${orderNumber}, but no vendor email is configured.`);
