@@ -242,7 +242,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // Resolve the owning vendor's notification address from trusted database records.
   const adminClient = createAdminClient();
   const [{ data: vendor }, { data: vendorOwner }] = await Promise.all([
-    adminClient.from("vendors").select("name, contact_email, email").eq("id", vendorId).maybeSingle(),
+    adminClient.from("vendors").select("name, contact_email, email, subdomain").eq("id", vendorId).maybeSingle(),
     adminClient.from("vendor_admins").select("email").eq("vendor_id", vendorId).eq("role", "owner").limit(1).maybeSingle(),
   ]);
   const vendorEmail = vendor?.contact_email || vendor?.email || vendorOwner?.email || null;
@@ -251,7 +251,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   after(async () => {
     await sendOrderConfirmationEmail({ to: email, orderNumber: order.order_number, items: orderItems, subtotal, shippingFee, discountAmount, total, fullName, address, city, paymentMethod });
     if (vendorEmail) {
-      await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary });
+      await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary, vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : `${ADMIN_URL}/admin/orders` });
     } else {
       console.warn(`[email] No vendor notification address found for order ${order.order_number} (vendor ${vendorId}).`);
     }
