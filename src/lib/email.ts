@@ -225,6 +225,29 @@ export async function sendVendorNewOrderEmail(params: {
   await sendMail(params.to, `New order — ${params.orderNumber}`, html, businessName);
 }
 
+export async function sendVendorPaymentProofAlert(params: {
+  to: string;
+  orderNumber: string;
+  total: number;
+  customerEmail: string;
+}): Promise<void> {
+  const { businessName, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
+  const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const html = wrapEmail(
+    `
+      <h2 style="margin-top:0;">💳 Payment proof uploaded — ${safe(params.orderNumber)}</h2>
+      <p>A customer uploaded payment proof for an order worth <strong>${formatPKR(params.total)}</strong>.</p>
+      <p><strong>Customer email:</strong> ${safe(params.customerEmail)}</p>
+      <p>Please review the proof and update the order's payment status.</p>
+      <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Review payment proof</a>
+    `,
+    headerText,
+    footerText,
+    primaryColor
+  );
+  await sendMail(params.to, `Payment proof uploaded — ${params.orderNumber}`, html, businessName);
+}
+
 export async function sendStreakReminderEmail(params: {
   to: string;
   name: string;
