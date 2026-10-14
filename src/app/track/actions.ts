@@ -79,7 +79,7 @@ export async function uploadPaymentProof(
         orderNumber,
         total: Number(order.total ?? 0),
         customerEmail: customer?.email ?? (order.delivery as { email?: string } | null)?.email ?? "Customer",
-        vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : `${ADMIN_URL}/admin/orders`,
+        vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : "https://admin.nashemann.store/admin/orders",
       }));
     } else {
       console.warn(`[email] Payment proof saved for order ${orderNumber}, but no vendor email is configured.`);
