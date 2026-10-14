@@ -251,7 +251,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   after(async () => {
     await sendOrderConfirmationEmail({ to: email, orderNumber: order.order_number, items: orderItems, subtotal, shippingFee, discountAmount, total, fullName, address, city, paymentMethod });
     if (vendorEmail) {
-      await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary, vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : `${ADMIN_URL}/admin/orders` });
+      await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary, vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : "https://admin.nashemann.store/admin/orders" });
     } else {
       console.warn(`[email] No vendor notification address found for order ${order.order_number} (vendor ${vendorId}).`);
     }
