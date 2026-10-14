@@ -219,16 +219,18 @@ export async function sendVendorNewOrderEmail(params: {
   address: string;
   city: string;
   itemsSummary: string;
+  vendorAdminUrl: string;
 }): Promise<void> {
   const { businessName, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
   const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const vendorAdminUrl = /^https:\/\/admin\.[a-z0-9-]+\.nashemann\.store\/admin\/orders$/.test(params.vendorAdminUrl) ? params.vendorAdminUrl : "https://admin.nashemann.store/admin/orders";
   const html = wrapEmail(
     `
       <h2 style="margin-top:0;">🛍️ New order — ${safe(params.orderNumber)}</h2>
       <p><strong>${safe(params.customerName)}</strong> placed an order for <strong>${formatPKR(params.total)}</strong>.</p>
       <p><strong>Items:</strong> ${safe(params.itemsSummary)}</p>
       <p><strong>Phone:</strong> ${safe(params.customerPhone)}<br/><strong>Deliver to:</strong> ${safe(params.address)}, ${safe(params.city)}</p>
-      <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Open Orders</a>
+      <a href="${vendorAdminUrl}" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Open Orders</a>
     `,
     headerText,
     footerText,
@@ -242,16 +244,18 @@ export async function sendVendorPaymentProofAlert(params: {
   orderNumber: string;
   total: number;
   customerEmail: string;
+  vendorAdminUrl: string;
 }): Promise<void> {
   const { businessName, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
   const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const vendorAdminUrl = /^https:\/\/admin\.[a-z0-9-]+\.nashemann\.store\/admin\/orders$/.test(params.vendorAdminUrl) ? params.vendorAdminUrl : "https://admin.nashemann.store/admin/orders";
   const html = wrapEmail(
     `
       <h2 style="margin-top:0;">💳 Payment proof uploaded — ${safe(params.orderNumber)}</h2>
       <p>A customer uploaded payment proof for an order worth <strong>${formatPKR(params.total)}</strong>.</p>
       <p><strong>Customer email:</strong> ${safe(params.customerEmail)}</p>
       <p>Please review the proof and update the order's payment status.</p>
-      <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Review payment proof</a>
+      <a href="${vendorAdminUrl}" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Review payment proof</a>
     `,
     headerText,
     footerText,
