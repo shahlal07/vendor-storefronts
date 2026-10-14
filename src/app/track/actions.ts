@@ -2,7 +2,7 @@
 
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sendAdminPaymentProofAlert, ADMIN_ALERT_EMAIL } from "@/lib/email";
+import { sendAdminPaymentProofAlert, sendVendorPaymentProofAlert, ADMIN_ALERT_EMAIL } from "@/lib/email";
 
 export type UploadProofState = { error: string } | { success: true } | undefined;
 
@@ -58,19 +58,33 @@ export async function uploadPaymentProof(
     return { error: "Couldn't attach that proof to your order. Please contact us on WhatsApp." };
   }
 
-  if (ADMIN_ALERT_EMAIL) {
-    const to = ADMIN_ALERT_EMAIL;
-    // Best-effort: RLS already scopes this to the caller's own order, and a
-    // failed lookup just means a slightly less detailed alert email, not a
-    // failed upload (which already succeeded above).
-    const { data: order } = await supabase
-      .from("orders")
-      .select("total")
-      .eq("order_number", orderNumber)
-      .maybeSingle();
+  // Notify the owning vendor from trusted order/vendor records, not a client-supplied address.
+  const { data: order } = await supabase
+    .from("orders")
+    .select("total, vendor_id, customer_id")
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+  if (order?.vendor_id) {
+    const [{ data: vendor }, { data: owner }, { data: customer }] = await Promise.all([
+      supabase.from("vendors").select("name, contact_email, email").eq("id", order.vendor_id).maybeSingle(),
+      supabase.from("vendor_admins").select("email").eq("vendor_id", order.vendor_id).eq("role", "owner").limit(1).maybeSingle(),
+      supabase.from("profiles").select("email").eq("id", order.customer_id).maybeSingle(),
+    ]);
+    const vendorEmail = vendor?.contact_email || vendor?.email || owner?.email;
+    if (vendorEmail) {
+      after(() => sendVendorPaymentProofAlert({
+        to: vendorEmail,
+        orderNumber,
+        total: Number(order.total ?? 0),
+        customerEmail: customer?.email ?? "Customer",
+      }));
+    } else {
+      console.warn(`[email] Payment proof saved for order ${orderNumber}, but no vendor email is configured.`);
+    }
+  }
 
-    const total = Number(order?.total ?? 0);
-    after(() => sendAdminPaymentProofAlert({ to, orderNumber, total }));
+  if (ADMIN_ALERT_EMAIL) {
+    after(() => sendAdminPaymentProofAlert({ to: ADMIN_ALERT_EMAIL, orderNumber, total: Number(order?.total ?? 0) }));
   }
 
   return { success: true };

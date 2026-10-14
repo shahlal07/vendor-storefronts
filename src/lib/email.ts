@@ -1,5 +1,4 @@
 import "server-only";
-import nodemailer from "nodemailer";
 import { formatPKR } from "@/lib/format";
 import { SITE_URL, ADMIN_URL } from "@/lib/site-url";
 import { getSiteContent } from "@/lib/queries/site-content";
@@ -12,29 +11,12 @@ import { getOrderItemVariantLabel } from "@/lib/order-item";
 // warning when the env vars aren't set, same graceful-degradation pattern as
 // GROQ_API_KEY in api/chat/route.ts -- placing an order must never fail just
 // because email isn't configured yet.
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
+const FROM_NOTIFICATIONS = "Nashemann <notifications@nashemann.store>";
 
-// Admin alerts (new order, payment proof uploaded) go to the same Gmail
-// account emails are sent from -- per the site owner's own choice, one
-// inbox to check rather than a separate address.
-export const ADMIN_ALERT_EMAIL = GMAIL_USER ?? null;
-
-// Every call site now fires these off via next/server's after() rather than
-// awaiting them inline, so a slow/unreachable SMTP server can no longer
-// stall order placement -- but a bounded timeout here is still worth having
-// as defense in depth (a hung connection would otherwise tie up the
-// server's post-response work indefinitely).
-const transporter =
-  GMAIL_USER && GMAIL_APP_PASSWORD
-    ? nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-        connectionTimeout: 10_000,
-        greetingTimeout: 10_000,
-        socketTimeout: 10_000,
-      })
-    : null;
+// Configure ADMIN_ALERT_EMAIL separately if the platform operator needs order alerts.
+export const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL ?? null;
 
 // A crude but effective HTML->text derivation -- an HTML-only email (no
 // text/plain part) is one of the strongest signals spam filters use against
@@ -57,21 +39,31 @@ function htmlToText(html: string): string {
 // Every call site treats email as best-effort -- a delivery failure here
 // must never fail the order/upload it's reporting on, since that real
 // side-effect already succeeded. Errors are logged, not thrown.
-async function sendMail(to: string, subject: string, html: string, businessName: string): Promise<void> {
-  if (!transporter || !GMAIL_USER) {
-    console.warn(`[email] Skipped "${subject}" to ${to} -- GMAIL_USER/GMAIL_APP_PASSWORD not set.`);
+async function sendMail(to: string, subject: string, html: string, _businessName: string): Promise<void> {
+  if (!RESEND_API_KEY) {
+    console.error(`[email] Skipped "${subject}" to ${to} -- RESEND_API_KEY is not configured for this deployment.`);
     return;
   }
   try {
-    await transporter.sendMail({
-      from: `"${businessName}" <${GMAIL_USER}>`,
-      to,
-      subject,
-      text: htmlToText(html),
-      html,
+    const response = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: FROM_NOTIFICATIONS,
+        to,
+        subject,
+        html,
+        text: htmlToText(html),
+      }),
     });
-  } catch (err) {
-    console.error(`[email] Failed to send "${subject}" to ${to}:`, err);
+    if (!response.ok) {
+      console.error(`[email] Resend rejected "${subject}" to ${to}: ${response.status} ${await response.text().catch(() => "")}`);
+    }
+  } catch (error) {
+    console.error(`[email] Failed to send "${subject}" to ${to}:`, error);
   }
 }
 
@@ -204,6 +196,56 @@ export async function sendAdminPaymentProofAlert(params: {
     primaryColor
   );
   await sendMail(params.to, `Payment Proof Uploaded — ${params.orderNumber}`, html, businessName);
+}
+
+export async function sendVendorNewOrderEmail(params: {
+  to: string;
+  orderNumber: string;
+  total: number;
+  customerName: string;
+  customerPhone: string;
+  address: string;
+  city: string;
+  itemsSummary: string;
+}): Promise<void> {
+  const { businessName, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
+  const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const html = wrapEmail(
+    `
+      <h2 style="margin-top:0;">🛍️ New order — ${safe(params.orderNumber)}</h2>
+      <p><strong>${safe(params.customerName)}</strong> placed an order for <strong>${formatPKR(params.total)}</strong>.</p>
+      <p><strong>Items:</strong> ${safe(params.itemsSummary)}</p>
+      <p><strong>Phone:</strong> ${safe(params.customerPhone)}<br/><strong>Deliver to:</strong> ${safe(params.address)}, ${safe(params.city)}</p>
+      <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Open Orders</a>
+    `,
+    headerText,
+    footerText,
+    primaryColor
+  );
+  await sendMail(params.to, `New order — ${params.orderNumber}`, html, businessName);
+}
+
+export async function sendVendorPaymentProofAlert(params: {
+  to: string;
+  orderNumber: string;
+  total: number;
+  customerEmail: string;
+}): Promise<void> {
+  const { businessName, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
+  const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const html = wrapEmail(
+    `
+      <h2 style="margin-top:0;">💳 Payment proof uploaded — ${safe(params.orderNumber)}</h2>
+      <p>A customer uploaded payment proof for an order worth <strong>${formatPKR(params.total)}</strong>.</p>
+      <p><strong>Customer email:</strong> ${safe(params.customerEmail)}</p>
+      <p>Please review the proof and update the order's payment status.</p>
+      <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Review payment proof</a>
+    `,
+    headerText,
+    footerText,
+    primaryColor
+  );
+  await sendMail(params.to, `Payment proof uploaded — ${params.orderNumber}`, html, businessName);
 }
 
 export async function sendStreakReminderEmail(params: {
