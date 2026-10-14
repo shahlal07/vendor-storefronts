@@ -175,6 +175,7 @@ export async function sendAdminNewOrderAlert(params: {
   total: number;
   customerName: string;
   itemsSummary: string;
+  vendorAdminUrl: string;
 }): Promise<void> {
   const { businessName, accentEmoji, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
   const html = wrapEmail(
@@ -182,7 +183,7 @@ export async function sendAdminNewOrderAlert(params: {
     <h2 style="margin-top:0;">${accentEmoji} New Order — ${params.orderNumber}</h2>
     <p><strong>${params.customerName}</strong> just ordered ${formatPKR(params.total)}.</p>
     <p>${params.itemsSummary}</p>
-    <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Open Admin Dashboard</a>
+    <a href="${params.vendorAdminUrl}" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Open Admin Dashboard</a>
   `,
     headerText,
     footerText,
@@ -201,7 +202,7 @@ export async function sendAdminPaymentProofAlert(params: {
     `
     <h2 style="margin-top:0;">💰 Payment Proof Uploaded — ${params.orderNumber}</h2>
     <p>A customer just uploaded payment proof for their ${formatPKR(params.total)} order. Please verify it in the admin dashboard.</p>
-    <a href="${ADMIN_URL}/admin/orders" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Verify Payment</a>
+    <a href="${params.vendorAdminUrl}" style="display:inline-block;margin-top:12px;background:${secondaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Verify Payment</a>
   `,
     headerText,
     footerText,
@@ -242,6 +243,7 @@ export async function sendVendorPaymentProofAlert(params: {
   orderNumber: string;
   total: number;
   customerEmail: string;
+  vendorAdminUrl: string;
 }): Promise<void> {
   const { businessName, headerText, footerText, primaryColor, secondaryColor } = await getEmailBrand();
   const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
