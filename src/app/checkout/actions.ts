@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getShippingRateServer } from "@/lib/queries/shipping-server";
-import { sendOrderConfirmationEmail, sendAdminNewOrderAlert, ADMIN_ALERT_EMAIL } from "@/lib/email";
+import { sendOrderConfirmationEmail, sendAdminNewOrderAlert, sendVendorNewOrderEmail, ADMIN_ALERT_EMAIL } from "@/lib/email";
 import { computeDiscount, computeOrderTotal } from "@/lib/discount";
 import { variantLabel } from "@/lib/variant-label";
 import { getOrderItemVariantLabel, type OrderItem } from "@/lib/order-item";
@@ -238,9 +238,22 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // Fired via after() rather than awaited -- a slow/unreachable SMTP server
   // must never stall the "Placing Order..." UI the customer is staring at,
   // since the order itself has already succeeded by this point.
+  // Resolve the owning vendor's notification address from trusted database records.
+  const [{ data: vendor }, { data: vendorOwner }] = await Promise.all([
+    supabase.from("vendors").select("name, contact_email, email").eq("id", vendorId).maybeSingle(),
+    supabase.from("vendor_admins").select("email").eq("vendor_id", vendorId).eq("role", "owner").limit(1).maybeSingle(),
+  ]);
+  const vendorEmail = vendor?.contact_email || vendor?.email || vendorOwner?.email || null;
+  const itemsSummary = orderItems.map((i) => `${i.qty}x ${i.name} (${getOrderItemVariantLabel(i)})`).join(", ");
+
   after(async () => {
     await sendOrderConfirmationEmail({ to: email, orderNumber: order.order_number, items: orderItems, subtotal, shippingFee, discountAmount, total, fullName, address, city, paymentMethod });
-    if (ADMIN_ALERT_EMAIL) await sendAdminNewOrderAlert({ to: ADMIN_ALERT_EMAIL, orderNumber: order.order_number, total, customerName: fullName, itemsSummary: orderItems.map((i) => `${i.qty}x ${i.name} (${getOrderItemVariantLabel(i)})`).join(", ") });
+    if (vendorEmail) {
+      await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary });
+    } else {
+      console.warn(`[email] No vendor notification address found for order ${order.order_number} (vendor ${vendorId}).`);
+    }
+    if (ADMIN_ALERT_EMAIL) await sendAdminNewOrderAlert({ to: ADMIN_ALERT_EMAIL, orderNumber: order.order_number, total, customerName: fullName, itemsSummary });
   });
 
   return { success: true, orderNumber: order.order_number };
