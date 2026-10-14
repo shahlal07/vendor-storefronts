@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getShippingRateServer } from "@/lib/queries/shipping-server";
 import { sendOrderConfirmationEmail, sendAdminNewOrderAlert, sendVendorNewOrderEmail, ADMIN_ALERT_EMAIL } from "@/lib/email";
 import { computeDiscount, computeOrderTotal } from "@/lib/discount";
@@ -239,9 +240,10 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // must never stall the "Placing Order..." UI the customer is staring at,
   // since the order itself has already succeeded by this point.
   // Resolve the owning vendor's notification address from trusted database records.
+  const adminClient = createAdminClient();
   const [{ data: vendor }, { data: vendorOwner }] = await Promise.all([
-    supabase.from("vendors").select("name, contact_email, email").eq("id", vendorId).maybeSingle(),
-    supabase.from("vendor_admins").select("email").eq("vendor_id", vendorId).eq("role", "owner").limit(1).maybeSingle(),
+    adminClient.from("vendors").select("name, contact_email, email").eq("id", vendorId).maybeSingle(),
+    adminClient.from("vendor_admins").select("email").eq("vendor_id", vendorId).eq("role", "owner").limit(1).maybeSingle(),
   ]);
   const vendorEmail = vendor?.contact_email || vendor?.email || vendorOwner?.email || null;
   const itemsSummary = orderItems.map((i) => `${i.qty}x ${i.name} (${getOrderItemVariantLabel(i)})`).join(", ");
