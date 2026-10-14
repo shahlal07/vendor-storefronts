@@ -11,9 +11,7 @@ import { getOrderItemVariantLabel } from "@/lib/order-item";
 // warning when the env vars aren't set, same graceful-degradation pattern as
 // GROQ_API_KEY in api/chat/route.ts -- placing an order must never fail just
 // because email isn't configured yet.
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_ENDPOINT = "https://api.resend.com/emails";
-const FROM_NOTIFICATIONS = "Nashemann <notifications@nashemann.store>";
+const PLATFORM_MAILER_URL = process.env.NASHEMANN_MAILER_URL ?? "https://superadmin.nashemann.store/api/notifications/send";
 
 // Configure ADMIN_ALERT_EMAIL separately if the platform operator needs order alerts.
 export const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL ?? null;
@@ -40,32 +38,27 @@ function htmlToText(html: string): string {
 // must never fail the order/upload it's reporting on, since that real
 // side-effect already succeeded. Errors are logged, not thrown.
 async function sendMail(to: string, subject: string, html: string, _businessName: string): Promise<boolean> {
-  if (!RESEND_API_KEY) {
-    console.error(`[email] Skipped "${subject}" to ${to} -- RESEND_API_KEY is not configured for this deployment.`);
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    console.error(`[email] Skipped "${subject}" to ${to} -- SUPABASE_SERVICE_ROLE_KEY is not configured.`);
     return false;
   }
   try {
-    const response = await fetch(RESEND_ENDPOINT, {
+    const response = await fetch(PLATFORM_MAILER_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
+        Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: FROM_NOTIFICATIONS,
-        to,
-        subject,
-        html,
-        text: htmlToText(html),
-      }),
+      body: JSON.stringify({ to, subject, html, category: "notifications" }),
     });
     if (!response.ok) {
-      console.error(`[email] Resend rejected "${subject}" to ${to}: ${response.status} ${await response.text().catch(() => "")}`);
+      console.error(`[email] Internal mailer rejected "${subject}" to ${to}: HTTP ${response.status}`);
       return false;
     }
     return true;
   } catch (error) {
-    console.error(`[email] Failed to send "${subject}" to ${to}:`, error);
+    console.error(`[email] Failed to send "${subject}" to ${to} through the internal mailer:`, error);
     return false;
   }
 }
