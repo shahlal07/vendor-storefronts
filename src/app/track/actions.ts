@@ -2,6 +2,7 @@
 
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendAdminPaymentProofAlert, sendVendorPaymentProofAlert, ADMIN_ALERT_EMAIL } from "@/lib/email";
 
 export type UploadProofState = { error: string } | { success: true } | undefined;
@@ -65,9 +66,10 @@ export async function uploadPaymentProof(
     .eq("order_number", orderNumber)
     .maybeSingle();
   if (order?.vendor_id) {
+    const adminClient = createAdminClient();
     const [{ data: vendor }, { data: owner }, { data: customer }] = await Promise.all([
-      supabase.from("vendors").select("name, contact_email, email").eq("id", order.vendor_id).maybeSingle(),
-      supabase.from("vendor_admins").select("email").eq("vendor_id", order.vendor_id).eq("role", "owner").limit(1).maybeSingle(),
+      adminClient.from("vendors").select("name, contact_email, email").eq("id", order.vendor_id).maybeSingle(),
+      adminClient.from("vendor_admins").select("email").eq("vendor_id", order.vendor_id).eq("role", "owner").limit(1).maybeSingle(),
       supabase.from("profiles").select("email").eq("id", order.customer_id).maybeSingle(),
     ]);
     const vendorEmail = vendor?.contact_email || vendor?.email || owner?.email;
