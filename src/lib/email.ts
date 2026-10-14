@@ -39,10 +39,10 @@ function htmlToText(html: string): string {
 // Every call site treats email as best-effort -- a delivery failure here
 // must never fail the order/upload it's reporting on, since that real
 // side-effect already succeeded. Errors are logged, not thrown.
-async function sendMail(to: string, subject: string, html: string, _businessName: string): Promise<void> {
+async function sendMail(to: string, subject: string, html: string, _businessName: string): Promise<boolean> {
   if (!RESEND_API_KEY) {
     console.error(`[email] Skipped "${subject}" to ${to} -- RESEND_API_KEY is not configured for this deployment.`);
-    return;
+    return false;
   }
   try {
     const response = await fetch(RESEND_ENDPOINT, {
@@ -61,9 +61,12 @@ async function sendMail(to: string, subject: string, html: string, _businessName
     });
     if (!response.ok) {
       console.error(`[email] Resend rejected "${subject}" to ${to}: ${response.status} ${await response.text().catch(() => "")}`);
+      return false;
     }
+    return true;
   } catch (error) {
     console.error(`[email] Failed to send "${subject}" to ${to}:`, error);
+    return false;
   }
 }
 
@@ -118,6 +121,22 @@ function itemsTable(items: OrderItemForEmail[]): string {
     )
     .join("");
   return `<table style="width:100%;border-collapse:collapse;margin:16px 0;">${rows}</table>`;
+}
+
+export async function sendCustomerWelcomeEmail(params: { to: string; name: string }): Promise<boolean> {
+  const { businessName, accentEmoji, headerText, footerText, primaryColor } = await getEmailBrand();
+  const safeName = params.name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const html = wrapEmail(
+    `
+      <h2 style="margin-top:0;">Welcome to ${businessName}, ${safeName}! ${accentEmoji}</h2>
+      <p>Your account is ready. You can browse the store, save your favourites, track orders, and manage your delivery details from your account.</p>
+      <a href="${SITE_URL}/account" style="display:inline-block;margin-top:16px;background:${primaryColor};color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;">Open your account</a>
+    `,
+    headerText,
+    footerText,
+    primaryColor
+  );
+  return sendMail(params.to, `Welcome to ${businessName}!`, html, businessName);
 }
 
 export async function sendOrderConfirmationEmail(params: {
