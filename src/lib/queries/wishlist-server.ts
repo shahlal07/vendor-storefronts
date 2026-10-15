@@ -56,5 +56,5 @@ export async function getFullWishlistForCurrentUser(): Promise<WishlistProduct[]
 
   return ((data ?? []) as WishlistRow[])
     .map((row) => firstProduct(row.product))
-    .filter((p): p is WishlistProduct => Boolean(p) && p.status === "published");
+    .filter((p): p is WishlistProduct => p !== null && p.status === "published");
 }
