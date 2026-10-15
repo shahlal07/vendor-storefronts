@@ -25,6 +25,7 @@ export async function getReviewsForCurrentUser() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("reviews") as any;
   const { data } = await query
     .select("id, rating, title, body, verified_purchase, created_at, product:products(id, slug, name, image)")
@@ -37,6 +38,7 @@ export async function getReviewsForCurrentUser() {
 export async function getReviewsForProduct(productId: string): Promise<ProductReview[]> {
   const supabase = await createClient();
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("reviews") as any;
   const { data, error } = await query
     .select("id, rating, title, body, verified_purchase, created_at, images, taste_rating, freshness_rating, packaging_rating, delivery_rating, helpful_count, admin_reply_body, admin_reply_images, admin_reply_at, profile:profiles!reviews_profile_id_fkey(name)")
@@ -50,6 +52,7 @@ export async function getReviewsForProduct(productId: string): Promise<ProductRe
 export async function getTopReviews(limit = 6) {
   const supabase = await createClient();
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("reviews") as any;
   const { data, error } = await query
     .select("id, rating, title, body, created_at, product:products(name, slug), profile:profiles!reviews_profile_id_fkey(name)")
