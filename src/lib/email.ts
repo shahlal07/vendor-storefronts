@@ -50,7 +50,7 @@ async function sendMail(to: string, subject: string, html: string, _businessName
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ to, subject, html, category: "notifications" }),
+      body: JSON.stringify({ to, subject, html, category: "notifications", source: "vendor-storefronts" }),
     });
     if (!response.ok) {
       console.error(`[email] Internal mailer rejected "${subject}" to ${to}: HTTP ${response.status}`);
