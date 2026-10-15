@@ -47,6 +47,16 @@ describe("validateCheckoutLines", () => {
     ).toContain("no longer available");
   });
 
+  it("rejects a resolved item owned by a different storefront vendor", () => {
+    expect(
+      validateCheckoutLines(
+        [{ unitId: "foreign-box", qty: 1 }],
+        [{ id: "foreign-box", source: "box_size", vendorId: "vendor-b" }],
+        "vendor-a"
+      )
+    ).toContain("belongs to another store");
+  });
+
   it("matches a variant only to a resolved variant, not a box size with the same ID", () => {
     expect(
       validateCheckoutLines(
