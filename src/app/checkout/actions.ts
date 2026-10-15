@@ -76,17 +76,28 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
 
   if (boxSizesError || variantsError) return { error: "Something went wrong reading your cart. Please try again." };
 
+  // The generated Supabase relationship type can represent a many-to-one product
+  // join as an array. Normalize it once so checkout always handles one product.
+  const normalizedBoxSizes = (boxSizes ?? []).map((unit) => ({
+    ...unit,
+    product: Array.isArray(unit.product) ? unit.product[0] ?? null : unit.product,
+  }));
+  const normalizedVariants = (variants ?? []).map((unit) => ({
+    ...unit,
+    product: Array.isArray(unit.product) ? unit.product[0] ?? null : unit.product,
+  }));
+
   // Reject the entire submission if even one submitted unit disappeared or
   // was invalid. Without this check, the loops below silently omit unresolved
   // IDs and can create an order for only part of the customer's cart.
   const currentVendor = await getCurrentVendor();
   const resolvedUnits = [
-    ...(boxSizes ?? []).map((unit) => ({
+    ...normalizedBoxSizes.map((unit) => ({
       id: unit.id,
       source: "box_size" as const,
       vendorId: unit.product?.vendor_id ?? null,
     })),
-    ...(variants ?? []).map((unit) => ({
+    ...normalizedVariants.map((unit) => ({
       id: unit.id,
       source: "variant" as const,
       vendorId: unit.product?.vendor_id ?? null,
@@ -101,7 +112,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   let subtotal = 0;
   let vendorId: string | null = null;
 
-  for (const box of boxSizes ?? []) {
+  for (const box of normalizedBoxSizes) {
     const qty = qtyByUnit.get(box.id) ?? 0;
     if (qty <= 0 || !box.active || !box.product || box.product.status !== "published") return { error: "One of the items in your cart is no longer available." };
     if (box.stock_qty < qty) return { error: `Only ${box.stock_qty} left of ${box.product.name} (${box.box_size_kg}kg) -- please adjust the quantity.` };
@@ -131,7 +142,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
     vendorId = box.product.vendor_id;
   }
 
-  for (const variant of variants ?? []) {
+  for (const variant of normalizedVariants) {
     const qty = qtyByUnit.get(variant.id) ?? 0;
     if (qty <= 0 || !variant.active || !variant.product || variant.product.status !== "published") return { error: "One of the items in your cart is no longer available." };
     const label = variantLabel({ kind: "variant", attributes: (variant.attributes ?? {}) as Record<string, string>, label: variant.label });
