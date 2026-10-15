@@ -30,12 +30,14 @@ export async function checkCoupon(code: string, subtotal: number, vendorId: stri
   const supabase = await createClient();
   const headersList = await headers();
   const ip = headersList.get("x-forwarded-for")?.split(",")[0]?.trim() || headersList.get("x-real-ip") || "unknown";
-  const { data: rateLimit } = await supabase.rpc("check_and_record_coupon_attempt", { p_identifier: ip }).single();
+  const { data: rateLimitData } = await supabase.rpc("check_and_record_coupon_attempt", { p_identifier: ip }).single();
+  const rateLimit = rateLimitData as { allowed?: boolean } | null;
   if (!rateLimit?.allowed) return { valid: false, message: "Too many attempts. Please try again in a few minutes." };
   const { data: { user } } = await supabase.auth.getUser();
-  const { data } = await supabase.rpc("validate_coupon", { p_code: code, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user?.id }).single();
+  const { data: couponData } = await supabase.rpc("validate_coupon", { p_code: code, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user?.id }).single();
+  const data = couponData as { valid?: boolean; message?: string; discount_type?: string; discount_value?: number | string } | null;
   if (!data?.valid) return { valid: false, message: data?.message ?? "Invalid coupon code." };
-  return { valid: true, discountType: data.discount_type ?? "", discountValue: Number(data.discount_value ?? 0), message: data.message };
+  return { valid: true, discountType: data.discount_type ?? "", discountValue: Number(data.discount_value ?? 0), message: data.message ?? "Coupon applied." };
 }
 
 export async function placeOrder(lines: OrderLineInput[], formData: FormData): Promise<PlaceOrderState> {
@@ -185,14 +187,16 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   let welcomeDiscountGranted = false;
 
   if (useWelcomeDiscount) {
-    const { data: claimResult } = await supabase.rpc("claim_welcome_discount").single();
+    const { data: claimData } = await supabase.rpc("claim_welcome_discount").single();
+    const claimResult = claimData as { discount_percent?: number | string | null } | null;
     if (claimResult?.discount_percent) {
       discountAmount = Math.round((subtotal * Number(claimResult.discount_percent)) / 100);
       welcomeDiscountGranted = true;
       appliedCouponCode = "WELCOME";
     }
   } else if (couponCode) {
-    const { data: couponResult } = await supabase.rpc("validate_coupon", { p_code: couponCode, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user.id }).single();
+    const { data: couponData } = await supabase.rpc("validate_coupon", { p_code: couponCode, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user.id }).single();
+    const couponResult = couponData as { valid?: boolean; discount_type?: string; discount_value?: number | string } | null;
     if (couponResult?.valid) {
       appliedCouponCode = couponCode.toUpperCase();
       const result = computeDiscount(couponResult.discount_type, Number(couponResult.discount_value), subtotal, shippingFee);
