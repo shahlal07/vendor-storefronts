@@ -63,10 +63,19 @@ export async function resolveCartLines(items: CartItem[]): Promise<CartLine[]> {
       : Promise.resolve({ data: [], error: null }),
   ]);
 
+  const boxSizeRows = (boxSizeResult.data ?? []).map((row) => ({
+    ...row,
+    product: Array.isArray(row.product) ? row.product[0] ?? null : row.product,
+  }));
+  const variantRows = (variantResult.data ?? []).map((row) => ({
+    ...row,
+    product: Array.isArray(row.product) ? row.product[0] ?? null : row.product,
+  }));
+
   const qtyByUnit = new Map(items.map((i) => [i.unitId, i.qty]));
   const addonsByUnit = new Map(items.map((i) => [i.unitId, i.addonSelections]));
 
-  const boxLines: CartLine[] = (boxSizeResult.data ?? [])
+  const boxLines: CartLine[] = boxSizeRows
     .filter((row) => row.product && row.product.status === "published")
     .map((row) => {
       const qty = qtyByUnit.get(row.id) ?? 0;
@@ -93,7 +102,7 @@ export async function resolveCartLines(items: CartItem[]): Promise<CartLine[]> {
       };
     });
 
-  const variantLines: CartLine[] = (variantResult.data ?? [])
+  const variantLines: CartLine[] = variantRows
     .filter((row) => row.product && row.product.status === "published")
     .map((row) => {
       const qty = qtyByUnit.get(row.id) ?? 0;
