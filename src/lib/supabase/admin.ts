@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- The generated Database schema is stale; this privileged client intentionally bypasses it.
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
 /** Server-only client for trusted cross-vendor lookups and Auth metadata updates. */
@@ -11,6 +12,7 @@ export function createAdminClient() {
   if (!url || !serviceRoleKey) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for trusted server-side operations.");
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The generated Database schema is stale; callers constrain each privileged query.
   adminClient = createClient<any>(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
