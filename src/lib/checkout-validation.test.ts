@@ -35,6 +35,15 @@ describe("validateCheckoutLines", () => {
     ).toContain("duplicate item");
   });
 
+  it("rejects the same unit ID submitted under different sources", () => {
+    expect(
+      validateCheckoutLines([
+        { unitId: "shared-id", qty: 1 },
+        { unitId: "shared-id", source: "variant", qty: 1 },
+      ])
+    ).toContain("duplicate item");
+  });
+
   it("rejects a cart if any submitted unit did not resolve from the database", () => {
     expect(
       validateCheckoutLines(
