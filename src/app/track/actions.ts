@@ -87,7 +87,8 @@ export async function uploadPaymentProof(
   }
 
   if (ADMIN_ALERT_EMAIL) {
-    after(() => sendAdminPaymentProofAlert({ to: ADMIN_ALERT_EMAIL, orderNumber, total: Number(order?.total ?? 0) }));
+    const adminAlertEmail = ADMIN_ALERT_EMAIL;
+    after(() => sendAdminPaymentProofAlert({ to: adminAlertEmail, orderNumber, total: Number(order?.total ?? 0) }));
   }
 
   return { success: true };
