@@ -7,6 +7,7 @@ export type CheckoutLineInput = {
 export type ResolvedCheckoutUnit = {
   id: string;
   source: "box_size" | "variant";
+  vendorId: string | null;
 };
 
 function sourceFor(line: CheckoutLineInput): "box_size" | "variant" | null {
@@ -21,7 +22,8 @@ function sourceFor(line: CheckoutLineInput): "box_size" | "variant" | null {
  */
 export function validateCheckoutLines(
   lines: readonly CheckoutLineInput[],
-  resolvedUnits?: readonly ResolvedCheckoutUnit[]
+  resolvedUnits?: readonly ResolvedCheckoutUnit[],
+  expectedVendorId?: string
 ): string | null {
   if (!Array.isArray(lines) || lines.length === 0) return "Your cart is empty.";
 
@@ -48,6 +50,13 @@ export function validateCheckoutLines(
     for (const key of submittedKeys) {
       if (!resolvedKeys.has(key)) {
         return "One of the items in your cart is no longer available. Please refresh your cart.";
+      }
+    }
+    if (expectedVendorId) {
+      for (const unit of resolvedUnits) {
+        if (submittedKeys.has(`${unit.source}:${unit.id}`) && unit.vendorId !== expectedVendorId) {
+          return "This item belongs to another store. Please remove it from your cart and try again.";
+        }
       }
     }
   }
