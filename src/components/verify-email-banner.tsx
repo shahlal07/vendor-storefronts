@@ -52,7 +52,8 @@ export function VerifyEmailBanner({
       return;
     }
 
-    const { data, error: grantError } = await supabase.rpc("grant_welcome_discount").single();
+    const { data: grantData, error: grantError } = await supabase.rpc("grant_welcome_discount").single();
+    const data = grantData as { discount_percent?: number | null } | null;
     setPending(false);
 
     if (grantError) {

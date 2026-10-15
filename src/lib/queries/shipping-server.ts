@@ -8,6 +8,7 @@ export async function getShippingRateServer(
   city: string
 ): Promise<number> {
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("shipping_zones") as any;
   const { data } = await query
     .select("city, rate")
@@ -25,6 +26,7 @@ export async function getShippingRateServer(
 export async function getDeliveryCoverage(): Promise<Record<string, string[]>> {
   const supabase = await createClient();
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("shipping_zones") as any;
   const { data } = await query
     .select("province, city")

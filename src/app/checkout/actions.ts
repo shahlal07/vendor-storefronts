@@ -10,6 +10,8 @@ import { computeDiscount, computeOrderTotal } from "@/lib/discount";
 import { variantLabel } from "@/lib/variant-label";
 import { getOrderItemVariantLabel, type OrderItem } from "@/lib/order-item";
 import { getAddonGroups, addonSelectionLabel, totalAddonPrice } from "@/lib/product-addons";
+import { validateCheckoutLines } from "@/lib/checkout-validation";
+import { getCurrentVendor } from "@/lib/tenant";
 
 export type OrderLineInput = {
   unitId: string;
@@ -28,18 +30,22 @@ export async function checkCoupon(code: string, subtotal: number, vendorId: stri
   const supabase = await createClient();
   const headersList = await headers();
   const ip = headersList.get("x-forwarded-for")?.split(",")[0]?.trim() || headersList.get("x-real-ip") || "unknown";
-  const { data: rateLimit } = await supabase.rpc("check_and_record_coupon_attempt", { p_identifier: ip }).single();
+  const { data: rateLimitData } = await supabase.rpc("check_and_record_coupon_attempt", { p_identifier: ip }).single();
+  const rateLimit = rateLimitData as { allowed?: boolean } | null;
   if (!rateLimit?.allowed) return { valid: false, message: "Too many attempts. Please try again in a few minutes." };
   const { data: { user } } = await supabase.auth.getUser();
-  const { data } = await supabase.rpc("validate_coupon", { p_code: code, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user?.id }).single();
+  const { data: couponData } = await supabase.rpc("validate_coupon", { p_code: code, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user?.id }).single();
+  const data = couponData as { valid?: boolean; message?: string; discount_type?: string; discount_value?: number | string } | null;
   if (!data?.valid) return { valid: false, message: data?.message ?? "Invalid coupon code." };
-  return { valid: true, discountType: data.discount_type ?? "", discountValue: Number(data.discount_value ?? 0), message: data.message };
+  return { valid: true, discountType: data.discount_type ?? "", discountValue: Number(data.discount_value ?? 0), message: data.message ?? "Coupon applied." };
 }
 
 export async function placeOrder(lines: OrderLineInput[], formData: FormData): Promise<PlaceOrderState> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Please sign in to place your order." };
+  const lineValidationError = validateCheckoutLines(lines);
+  if (lineValidationError) return { error: lineValidationError };
   if (lines.length === 0) return { error: "Your cart is empty." };
 
   const fullName = String(formData.get("fullName") ?? "").trim();
@@ -72,13 +78,43 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
 
   if (boxSizesError || variantsError) return { error: "Something went wrong reading your cart. Please try again." };
 
+  // The generated Supabase relationship type can represent a many-to-one product
+  // join as an array. Normalize it once so checkout always handles one product.
+  const normalizedBoxSizes = (boxSizes ?? []).map((unit) => ({
+    ...unit,
+    product: Array.isArray(unit.product) ? unit.product[0] ?? null : unit.product,
+  }));
+  const normalizedVariants = (variants ?? []).map((unit) => ({
+    ...unit,
+    product: Array.isArray(unit.product) ? unit.product[0] ?? null : unit.product,
+  }));
+
+  // Reject the entire submission if even one submitted unit disappeared or
+  // was invalid. Without this check, the loops below silently omit unresolved
+  // IDs and can create an order for only part of the customer's cart.
+  const currentVendor = await getCurrentVendor();
+  const resolvedUnits = [
+    ...normalizedBoxSizes.map((unit) => ({
+      id: unit.id,
+      source: "box_size" as const,
+      vendorId: unit.product?.vendor_id ?? null,
+    })),
+    ...normalizedVariants.map((unit) => ({
+      id: unit.id,
+      source: "variant" as const,
+      vendorId: unit.product?.vendor_id ?? null,
+    })),
+  ];
+  const unresolvedLineError = validateCheckoutLines(lines, resolvedUnits, currentVendor.id);
+  if (unresolvedLineError) return { error: unresolvedLineError };
+
   const qtyByUnit = new Map(lines.map((l) => [l.unitId, l.qty]));
   const addonsByUnit = new Map(lines.map((l) => [l.unitId, l.addonSelections]));
   const orderItems: OrderItem[] = [];
   let subtotal = 0;
   let vendorId: string | null = null;
 
-  for (const box of boxSizes ?? []) {
+  for (const box of normalizedBoxSizes) {
     const qty = qtyByUnit.get(box.id) ?? 0;
     if (qty <= 0 || !box.active || !box.product || box.product.status !== "published") return { error: "One of the items in your cart is no longer available." };
     if (box.stock_qty < qty) return { error: `Only ${box.stock_qty} left of ${box.product.name} (${box.box_size_kg}kg) -- please adjust the quantity.` };
@@ -108,7 +144,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
     vendorId = box.product.vendor_id;
   }
 
-  for (const variant of variants ?? []) {
+  for (const variant of normalizedVariants) {
     const qty = qtyByUnit.get(variant.id) ?? 0;
     if (qty <= 0 || !variant.active || !variant.product || variant.product.status !== "published") return { error: "One of the items in your cart is no longer available." };
     const label = variantLabel({ kind: "variant", attributes: (variant.attributes ?? {}) as Record<string, string>, label: variant.label });
@@ -151,14 +187,16 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   let welcomeDiscountGranted = false;
 
   if (useWelcomeDiscount) {
-    const { data: claimResult } = await supabase.rpc("claim_welcome_discount").single();
+    const { data: claimData } = await supabase.rpc("claim_welcome_discount").single();
+    const claimResult = claimData as { discount_percent?: number | string | null } | null;
     if (claimResult?.discount_percent) {
       discountAmount = Math.round((subtotal * Number(claimResult.discount_percent)) / 100);
       welcomeDiscountGranted = true;
       appliedCouponCode = "WELCOME";
     }
   } else if (couponCode) {
-    const { data: couponResult } = await supabase.rpc("validate_coupon", { p_code: couponCode, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user.id }).single();
+    const { data: couponData } = await supabase.rpc("validate_coupon", { p_code: couponCode, p_order_amount: subtotal, p_vendor_id: vendorId, p_customer_id: user.id }).single();
+    const couponResult = couponData as { valid?: boolean; discount_type?: string; discount_value?: number | string } | null;
     if (couponResult?.valid) {
       appliedCouponCode = couponCode.toUpperCase();
       const result = computeDiscount(couponResult.discount_type, Number(couponResult.discount_value), subtotal, shippingFee);

@@ -27,6 +27,7 @@ export async function getWishlistPreviewForCurrentUser(limit = 4): Promise<Wishl
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("wishlists") as any;
 
   const { data } = await query
@@ -38,7 +39,7 @@ export async function getWishlistPreviewForCurrentUser(limit = 4): Promise<Wishl
 
   return ((data ?? []) as WishlistRow[])
     .map((row) => firstProduct(row.product))
-    .filter((p): p is WishlistProduct => Boolean(p) && p.status === "published");
+    .filter((p): p is WishlistProduct => p !== null && p.status === "published");
 }
 
 export async function getFullWishlistForCurrentUser(): Promise<WishlistProduct[]> {
@@ -46,6 +47,7 @@ export async function getFullWishlistForCurrentUser(): Promise<WishlistProduct[]
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("wishlists") as any;
 
   const { data } = await query
@@ -56,5 +58,5 @@ export async function getFullWishlistForCurrentUser(): Promise<WishlistProduct[]
 
   return ((data ?? []) as WishlistRow[])
     .map((row) => firstProduct(row.product))
-    .filter((p): p is WishlistProduct => Boolean(p) && p.status === "published");
+    .filter((p): p is WishlistProduct => p !== null && p.status === "published");
 }

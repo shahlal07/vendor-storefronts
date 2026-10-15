@@ -6,6 +6,7 @@ export async function getSiteChrome() {
   const vendor = await getCurrentVendor();
 
   // Live schema contains vendor_id; checked-in generated types are older.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("public_business_settings") as any;
   const { data: settings } = await query
     .select("*")

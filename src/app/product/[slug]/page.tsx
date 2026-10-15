@@ -83,7 +83,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         </div>
         {product.tagline && <p className="text-lg font-medium text-mango-deep mb-6">{product.tagline}</p>}
         {specs.length > 0 && <dl className="grid grid-cols-2 sm:grid-cols-3 gap-5 mb-8 bg-cream-warm rounded-brand p-5">{specs.map((s) => <div key={s.label}><dt className="text-[11px] uppercase tracking-wide text-ink-light mb-0.5">{s.label}</dt><dd className="font-semibold text-sm">{s.value}</dd></div>)}</dl>}
-        {product.description?.map((paragraph, i) => <p key={i} className="text-ink-light mb-4 leading-relaxed">{paragraph}</p>)}
+        {product.description?.map((paragraph: string, i: number) => <p key={i} className="text-ink-light mb-4 leading-relaxed">{paragraph}</p>)}
         <ProductCareSection productType={product.product_type} storageTip={product.storage_tip} ripeningTip={product.ripening_tip} recipeSuggestions={product.recipe_suggestions ?? []} />
         {frequentlyBoughtTogether.length > 0 && <div className="mb-10"><h3 className="font-serif font-bold text-lg mb-3">Frequently Bought Together</h3><div className="grid grid-cols-2 gap-3 max-w-md">{frequentlyBoughtTogether.map((p) => <MiniProductCard key={p.id} product={p} />)}</div></div>}
       </div>
