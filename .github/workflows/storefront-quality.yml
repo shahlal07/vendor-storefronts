@@ -30,6 +30,8 @@ jobs:
         run: npm ci
       - name: Run unit tests
         run: npm test
+      - name: TypeScript type check
+        run: npm run typecheck
       - name: Run ESLint
         run: npm run lint
       - name: Build production application
