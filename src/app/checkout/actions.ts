@@ -10,6 +10,7 @@ import { computeDiscount, computeOrderTotal } from "@/lib/discount";
 import { variantLabel } from "@/lib/variant-label";
 import { getOrderItemVariantLabel, type OrderItem } from "@/lib/order-item";
 import { getAddonGroups, addonSelectionLabel, totalAddonPrice } from "@/lib/product-addons";
+import { validateCheckoutLines } from "@/lib/checkout-validation";
 
 export type OrderLineInput = {
   unitId: string;
@@ -40,6 +41,8 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Please sign in to place your order." };
+  const lineValidationError = validateCheckoutLines(lines);
+  if (lineValidationError) return { error: lineValidationError };
   if (lines.length === 0) return { error: "Your cart is empty." };
 
   const fullName = String(formData.get("fullName") ?? "").trim();
@@ -71,6 +74,16 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   ]);
 
   if (boxSizesError || variantsError) return { error: "Something went wrong reading your cart. Please try again." };
+
+  // Reject the entire submission if even one submitted unit disappeared or
+  // was invalid. Without this check, the loops below silently omit unresolved
+  // IDs and can create an order for only part of the customer's cart.
+  const resolvedUnits = [
+    ...(boxSizes ?? []).map((unit) => ({ id: unit.id, source: "box_size" as const })),
+    ...(variants ?? []).map((unit) => ({ id: unit.id, source: "variant" as const })),
+  ];
+  const unresolvedLineError = validateCheckoutLines(lines, resolvedUnits);
+  if (unresolvedLineError) return { error: unresolvedLineError };
 
   const qtyByUnit = new Map(lines.map((l) => [l.unitId, l.qty]));
   const addonsByUnit = new Map(lines.map((l) => [l.unitId, l.addonSelections]));
