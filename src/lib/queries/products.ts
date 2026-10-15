@@ -97,8 +97,16 @@ export const getProductBySlug = cache(async (slug: string) => {
 
   if (error || !data) return null;
 
-  const boxSizes = (data.product_box_sizes ?? []).filter((b) => b.active).sort((a, b) => a.box_size_kg - b.box_size_kg);
-  const variants = (data.product_variants ?? []).filter((v) => v.active).sort((a, b) => a.sort_order - b.sort_order).map((v) => ({ ...v, attributes: (v.attributes ?? {}) as Record<string, string> }));
+  const boxSizes = (data.product_box_sizes ?? [])
+    .filter((b: { active: boolean }) => b.active)
+    .sort((a: { box_size_kg: number }, b: { box_size_kg: number }) => a.box_size_kg - b.box_size_kg);
+  const variants = (data.product_variants ?? [])
+    .filter((v: { active: boolean }) => v.active)
+    .sort((a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order)
+    .map((v: { attributes: unknown; id: string; label: string | null; selling_price: number; stock_qty: number; sort_order: number }) => ({
+      ...v,
+      attributes: (v.attributes ?? {}) as Record<string, string>,
+    }));
 
   return { ...data, attributes: (data.attributes ?? {}) as Record<string, unknown>, boxSizes, variants };
 });
