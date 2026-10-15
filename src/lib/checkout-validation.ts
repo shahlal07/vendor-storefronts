@@ -28,6 +28,7 @@ export function validateCheckoutLines(
   if (!Array.isArray(lines) || lines.length === 0) return "Your cart is empty.";
 
   const submittedKeys = new Set<string>();
+  const submittedIds = new Set<string>();
   for (const line of lines) {
     if (!line || typeof line.unitId !== "string" || line.unitId.trim() === "") {
       return "One of the items in your cart is invalid. Please refresh your cart.";
@@ -37,9 +38,10 @@ export function validateCheckoutLines(
       return "One of the items in your cart has an invalid quantity or option. Please review your cart.";
     }
     const key = `${source}:${line.unitId}`;
-    if (submittedKeys.has(key)) {
+    if (submittedIds.has(line.unitId)) {
       return "Your cart contains a duplicate item. Please refresh your cart and try again.";
     }
+    submittedIds.add(line.unitId);
     submittedKeys.add(key);
   }
 
