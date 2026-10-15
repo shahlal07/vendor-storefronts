@@ -42,7 +42,7 @@ describe("validateCheckoutLines", () => {
           { unitId: "box-1", qty: 1 },
           { unitId: "deleted-box", qty: 1 },
         ],
-        [{ id: "box-1", source: "box_size" }]
+        [{ id: "box-1", source: "box_size", vendorId: "vendor-a" }]
       )
     ).toContain("no longer available");
   });
@@ -61,7 +61,7 @@ describe("validateCheckoutLines", () => {
     expect(
       validateCheckoutLines(
         [{ unitId: "same-id", source: "variant", qty: 1 }],
-        [{ id: "same-id", source: "box_size" }]
+        [{ id: "same-id", source: "box_size", vendorId: "vendor-a" }]
       )
     ).toContain("no longer available");
   });
