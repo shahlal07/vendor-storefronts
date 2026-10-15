@@ -8,6 +8,7 @@ export { DEFAULT_SITE_CONTENT, mergeSiteContent };
 export async function getSiteContent(): Promise<SiteContent> {
   const supabase = await createClient();
   const vendor = await getCurrentVendor();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- The checked-in Database type predates the live tenant-scoped schema.
   const query = supabase.from("site_content") as any;
   const { data } = await query
     .select("content")
