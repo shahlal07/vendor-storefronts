@@ -33,6 +33,8 @@ jobs:
       - name: TypeScript type check
         run: npm run typecheck
       - name: Run ESLint
+        if: always()
         run: npm run lint
       - name: Build production application
+        if: always()
         run: npm run build
