@@ -11,6 +11,7 @@ import { variantLabel } from "@/lib/variant-label";
 import { getOrderItemVariantLabel, type OrderItem } from "@/lib/order-item";
 import { getAddonGroups, addonSelectionLabel, totalAddonPrice } from "@/lib/product-addons";
 import { validateCheckoutLines } from "@/lib/checkout-validation";
+import { getCurrentVendor } from "@/lib/tenant";
 
 export type OrderLineInput = {
   unitId: string;
@@ -78,11 +79,20 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // Reject the entire submission if even one submitted unit disappeared or
   // was invalid. Without this check, the loops below silently omit unresolved
   // IDs and can create an order for only part of the customer's cart.
+  const currentVendor = await getCurrentVendor();
   const resolvedUnits = [
-    ...(boxSizes ?? []).map((unit) => ({ id: unit.id, source: "box_size" as const })),
-    ...(variants ?? []).map((unit) => ({ id: unit.id, source: "variant" as const })),
+    ...(boxSizes ?? []).map((unit) => ({
+      id: unit.id,
+      source: "box_size" as const,
+      vendorId: unit.product?.vendor_id ?? null,
+    })),
+    ...(variants ?? []).map((unit) => ({
+      id: unit.id,
+      source: "variant" as const,
+      vendorId: unit.product?.vendor_id ?? null,
+    })),
   ];
-  const unresolvedLineError = validateCheckoutLines(lines, resolvedUnits);
+  const unresolvedLineError = validateCheckoutLines(lines, resolvedUnits, currentVendor.id);
   if (unresolvedLineError) return { error: unresolvedLineError };
 
   const qtyByUnit = new Map(lines.map((l) => [l.unitId, l.qty]));
