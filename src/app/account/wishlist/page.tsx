@@ -16,8 +16,8 @@ export default async function AccountWishlistPage() {
     .eq("profile_id", user!.id);
 
   const products: ProductWithBoxSizes[] = (data ?? [])
-    .map((row) => row.product)
-    .filter((p): p is NonNullable<typeof p> => Boolean(p) && p.status === "published")
+    .map((row) => (Array.isArray(row.product) ? row.product[0] ?? null : row.product))
+    .filter((p): p is NonNullable<typeof p> => p !== null && p.status === "published")
     .map((p) => {
       const activeSizes = (p.product_box_sizes ?? [])
         .filter((b) => b.active)
