@@ -30,6 +30,8 @@ jobs:
         run: npm ci
       - name: Run unit tests
         run: npm test
+      - name: Generate Next.js route types
+        run: npx next typegen
       - name: TypeScript type check
         run: npm run typecheck
       - name: Run ESLint
