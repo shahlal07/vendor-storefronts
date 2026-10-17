@@ -4,18 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useUser } from "@/lib/use-user";
-import { getOrderByNumberAndContactClient, getOrderByNumberClient } from "@/lib/queries/orders-client";
+import { getOrderByNumberClient } from "@/lib/queries/orders-client";
+import { lookupGuestOrder, type TrackedOrder } from "@/app/track/actions";
 import { formatPKR } from "@/lib/format";
 import { PaymentProofPanel } from "@/components/payment-proof-panel";
 import { getOrderItemVariantLabel } from "@/lib/order-item";
 import { googleMapsUrl } from "@/lib/maps";
 import { orderTrackingWhatsAppLink } from "@/lib/whatsapp";
 import { WhatsAppIcon } from "@/components/contact-icons";
-import type { Tables } from "@/lib/supabase/types";
 
 const MANUAL_PAYMENT_METHODS = ["bank", "easypaisa", "jazzcash"];
 
-type Order = Tables<"orders">;
+type Order = TrackedOrder;
 
 const STATUS_STEPS = ["pending", "confirmed", "packed", "shipped", "delivered"] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -34,7 +34,7 @@ const TERMINAL_STATUSES = ["delivered", "cancelled", "refunded"];
 
 type TrackMethod = "order" | "guest";
 
-export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string | null; vendorId: string }) {
+export function TrackForm({ whatsappNumber }: { whatsappNumber: string | null }) {
   const searchParams = useSearchParams();
   const { user, loading: userLoading } = useUser();
   const [method, setMethod] = useState<TrackMethod>("order");
@@ -86,7 +86,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
       setOrders(null);
       return;
     }
-    const result = await getOrderByNumberAndContactClient(trimmed.toUpperCase(), trimmedContact, vendorId);
+    const result = await lookupGuestOrder(trimmed.toUpperCase(), trimmedContact);
     if (requestId === latestRequestId.current) setOrders(result ? [result] : null);
   }
 
