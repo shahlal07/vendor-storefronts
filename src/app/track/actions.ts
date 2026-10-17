@@ -37,7 +37,7 @@ export type TrackedOrder = Pick<
 export async function lookupGuestOrder(orderNumber: string, contact: string): Promise<TrackedOrder | null> {
   const normalizedOrderNumber = orderNumber.trim().toUpperCase();
   const normalizedContact = contact.trim();
-  if (!/^(?:ORD|TAG)-\\d{4,}$/i.test(normalizedOrderNumber) || normalizedContact.length < 5 || normalizedContact.length > 254) {
+  if (!/^(?:ORD|TAG)-\d{4,}$/i.test(normalizedOrderNumber) || normalizedContact.length < 5 || normalizedContact.length > 254) {
     return null;
   }
 
