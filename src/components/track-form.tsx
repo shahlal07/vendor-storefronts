@@ -144,7 +144,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
           e.preventDefault();
           search(query);
         }}
-        className="flex gap-3 mb-8"
+        className="flex flex-col sm:flex-row gap-3 mb-8"
       >
         <input
           ref={searchInputRef}
@@ -162,13 +162,13 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
             onChange={(e) => setContact(e.target.value)}
             placeholder="Checkout email or phone"
             aria-label="Checkout email or phone"
-            autoComplete="email"
+            autoComplete="off"
             className="flex-1 min-w-0 border-[1.5px] border-border-subtle rounded-full px-5 py-3 text-sm bg-surface focus-visible:outline-none focus-visible:border-mango-orange transition-colors"
           />
         )}
         <button
           type="submit"
-          className="shrink-0 bg-mango-orange text-white font-semibold px-6 py-3 rounded-full transition-transform hover:-translate-y-0.5"
+          className="w-full sm:w-auto shrink-0 bg-mango-orange text-white font-semibold px-6 py-3 rounded-full transition-transform hover:-translate-y-0.5"
         >
           Track
         </button>
