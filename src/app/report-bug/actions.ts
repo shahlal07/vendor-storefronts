@@ -27,7 +27,7 @@ export async function submitBugReport(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Please sign in to report a bug." };
 
-  const { allowed } = await checkRateLimit(supabase, "bug_report", user.id, {
+  const { allowed } = await checkRateLimit("bug_report", user.id, {
     maxAttempts: 5,
     windowMinutes: 60,
     lockMinutes: 60,
