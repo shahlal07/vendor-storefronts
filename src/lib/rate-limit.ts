@@ -19,19 +19,18 @@ export async function checkRateLimit(
   { maxAttempts, windowMinutes, lockMinutes }: RateLimitOptions
 ): Promise<RateLimitResult> {
   const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .rpc("check_and_record_rate_limit", {
-      p_bucket: bucket,
-      p_identifier: identifier,
-      p_max_attempts: maxAttempts,
-      p_window_minutes: windowMinutes,
-      p_lock_minutes: lockMinutes,
-    })
-    .single();
+  const { data, error } = await supabase.rpc("check_and_record_rate_limit", {
+    p_bucket: bucket,
+    p_identifier: identifier,
+    p_max_attempts: maxAttempts,
+    p_window_minutes: windowMinutes,
+    p_lock_minutes: lockMinutes,
+  });
+  const row = data?.[0];
 
   return {
-    allowed: !error && data?.allowed === true,
-    retryAfter: data?.retry_after ?? null,
+    allowed: !error && row?.allowed === true,
+    retryAfter: row?.retry_after ?? null,
   };
 }
 
