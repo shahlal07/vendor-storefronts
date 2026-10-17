@@ -31,16 +31,3 @@ export async function getOrderByNumberAndContactClient(orderNumber: string, cont
   });
   return data?.[0] ?? null;
 }
-
-/**
- * Tracking by email/phone alone, no order number needed -- returns EVERY
- * order (this vendor's own) matching that contact, most recent first, not
- * just the latest one. A guest who placed 2-3 orders under the same phone/
- * email can see all of them, same as a signed-in customer's order history.
- * Same digit-normalized phone matching as getOrderByNumberAndContactClient.
- */
-export async function getOrdersByContactClient(contact: string, vendorId: string) {
-  const supabase = createClient();
-  const { data } = await supabase.rpc("find_orders_by_contact", { p_contact: contact, p_vendor_id: vendorId });
-  return data ?? [];
-}
