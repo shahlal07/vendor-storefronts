@@ -13,7 +13,7 @@ export default async function TrackPage() {
         Enter your order number below to see its current status.
       </p>
       <Suspense>
-        <TrackForm whatsappNumber={whatsappNumber} vendorId={vendor.id} />
+        <TrackForm whatsappNumber={whatsappNumber} />
       </Suspense>
     </div>
   );
