@@ -1,5 +1,5 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/supabase/types";
+import "server-only";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type RateLimitOptions = {
   maxAttempts: number;
@@ -9,18 +9,17 @@ type RateLimitOptions = {
 
 type RateLimitResult = { allowed: boolean; retryAfter: string | null };
 
-// Generic wrapper around the check_and_record_rate_limit RPC (a parameterized
-// version of the same row-lock/increment/lockout primitive checkCoupon() in
-// checkout/actions.ts already uses for coupon-guessing prevention). Fails
-// closed on any RPC error, same as that existing call site -- a broken
-// rate limiter shouldn't become an open door.
+// This helper is server-only. The underlying SECURITY DEFINER RPC mutates a
+// private rate-limit table, so it must never be callable directly by anon or
+// authenticated API clients. Use the service-role client only from trusted
+// server routes/actions and keep bucket/limits defined by server code.
 export async function checkRateLimit(
-  supabase: SupabaseClient<Database>,
   bucket: string,
   identifier: string,
   { maxAttempts, windowMinutes, lockMinutes }: RateLimitOptions
 ): Promise<RateLimitResult> {
-  const { data } = await supabase
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
     .rpc("check_and_record_rate_limit", {
       p_bucket: bucket,
       p_identifier: identifier,
@@ -30,7 +29,10 @@ export async function checkRateLimit(
     })
     .single();
 
-  return { allowed: data?.allowed === true, retryAfter: data?.retry_after ?? null };
+  return {
+    allowed: !error && data?.allowed === true,
+    retryAfter: data?.retry_after ?? null,
+  };
 }
 
 // Same x-forwarded-for/x-real-ip extraction checkCoupon() already uses,
