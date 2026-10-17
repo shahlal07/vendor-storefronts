@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
   const supabase = await createClient();
 
-  const { allowed } = await checkRateLimit(supabase, "newsletter", getRequestIp(request), {
+  const { allowed } = await checkRateLimit("newsletter", getRequestIp(request), {
     maxAttempts: 5,
     windowMinutes: 10,
     lockMinutes: 30,
