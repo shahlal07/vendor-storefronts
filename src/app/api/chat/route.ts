@@ -252,9 +252,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No message provided." }, { status: 400 });
   }
 
-  const supabase = await createClient();
   const ip = getRequestIp(request);
-  const { allowed, retryAfter } = await checkRateLimit(supabase, "chat", ip, {
+  const { allowed, retryAfter } = await checkRateLimit("chat", ip, {
     maxAttempts: 30,
     windowMinutes: 10,
     lockMinutes: 10,
