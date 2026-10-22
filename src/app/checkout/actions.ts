@@ -250,7 +250,12 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
     }
   }
 
-  const { data: order, error: insertError } = await supabase
+  // Direct browser-role inserts to public.orders are disabled by the
+  // accompanying migration. Only this validated server action may create a
+  // customer order, using the server-only service-role client after all
+  // tenant, price, payment, and delivery checks have completed.
+  const adminClient = createAdminClient();
+  const { data: order, error: insertError } = await adminClient
     .from("orders")
     .insert({
       customer_id: user.id,
@@ -318,7 +323,6 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // must never stall the "Placing Order..." UI the customer is staring at,
   // since the order itself has already succeeded by this point.
   // Resolve the owning vendor's notification address from trusted database records.
-  const adminClient = createAdminClient();
   const [{ data: vendor }, { data: vendorOwner }] = await Promise.all([
     adminClient.from("vendors").select("name, contact_email, email, subdomain").eq("id", vendorId).maybeSingle(),
     adminClient.from("vendor_admins").select("email").eq("vendor_id", vendorId).eq("role", "owner").limit(1).maybeSingle(),
