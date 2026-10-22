@@ -11,7 +11,7 @@ WA-01 hardens the *existing* order system before an official WhatsApp adapter is
 
 - The checkout form creates and retains an opaque UUIDv4 idempotency token for retries in the current tab. The server scopes it to the current Supabase identity and writes the resulting key to the existing unique `orders.idempotency_key` field.
 - A retry with the same identity, key and vendor returns the pre-existing order without repeating the application-level address, coupon-usage or email side effects. Concurrent submissions are arbitrated by the existing database unique index; the losing request reads the winner and returns it.
-- The only canonical storefront order insert in the current storefront flow goes through the server action after server-side customer, tenant, line, database-price, shipping, discount and payment checks. The proposed migration removes direct `anon`/`authenticated` INSERT privileges and the broad customer INSERT policy.
+- The only canonical storefront order insert in the current storefront flow goes through the server action after server-side customer, tenant, line, database-price, shipping, discount and payment checks. Direct `anon`/`authenticated` INSERT privileges are handled separately by [PR #12](https://github.com/shahlal07/vendor-storefronts/pull/12).
 - The proposed stock function locks each stock row, validates item/vendor/product ownership, rejects malformed decrement requests and raises on insufficient or unconfigured stock. An exception in the order-insert trigger should roll the whole insert transaction back, including earlier item decrements and other transactional trigger effects. For cancellation/refund, an unresolved or NULL-stock item is recorded as a warning rather than making a previously valid status transition impossible.
 - Unit tests cover malformed keys and identity-scoping behavior. GitHub Actions verifies the TypeScript app and build; the database migration is not exercised by those application checks.
 
@@ -32,11 +32,11 @@ WA-01 hardens the *existing* order system before an official WhatsApp adapter is
 
 ## Required database and rollout verification
 
-**Do not apply the migration to production until the app deployment is ready and the same migration has passed in a non-production database.** The active Supabase project examined during WA-01 is the production project, so the checks below are currently release gates, not evidence of completion.
+**Do not apply the stock-function migration to production until it has passed in a non-production database.** The active Supabase project examined during WA-01 is production, so concurrency/rollback checks below are release gates, not evidence of completion. Direct browser order INSERT lockdown is separate in PR #12.
 
 | Check | Procedure | Required result |
 |---|---|---|
-| Direct customer insert is denied | Attempt direct `orders` INSERT with anon and authenticated roles using harmless test data after migration | Permission denied; no order/trigger side effects |
+| Direct customer insert is denied | Covered separately by [PR #12](https://github.com/shahlal07/vendor-storefronts/pull/12); verify direct REST INSERT after that migration | Permission denied; no order/trigger side effects |
 | Canonical checkout still works | Place a normal COD test order through the deployed server action | One canonical order, expected database fee snapshots and exactly one stock decrement |
 | Duplicate submission | Submit the same form token twice sequentially and in parallel | One `orders` row; both callers resolve to the same order number |
 | Concurrent last item | Set a test SKU stock to 1; concurrently insert two separate orders requesting 1 each | One succeeds; the other fails; final stock is 0 and there is one successful order |
@@ -51,4 +51,4 @@ Record the environment, test fixture IDs, SQL output, CI run, deployment SHA and
 
 ## Known boundary / next phase
 
-This branch does not include Meta webhooks or WhatsApp intent conversion. The next phase must add durable webhook receipt/deduplication and a transaction-safe intent-to-order association; a database unique idempotency key on web checkout alone cannot cover a process crash between a WhatsApp intent confirmation and its canonical order commit.
+This stock-guard branch does not include Meta webhooks or WhatsApp intent conversion. Direct order INSERT locking and the application retry key are handled separately in PR #12. The next phase must add durable webhook receipt/deduplication and a transaction-safe intent-to-order association; a database unique idempotency key on web checkout alone cannot cover a process crash between a WhatsApp intent confirmation and its canonical order commit.
