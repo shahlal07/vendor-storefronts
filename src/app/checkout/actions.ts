@@ -12,6 +12,7 @@ import { getOrderItemVariantLabel, type OrderItem } from "@/lib/order-item";
 import { getAddonGroups, addonSelectionLabel, totalAddonPrice } from "@/lib/product-addons";
 import { validateCheckoutLines } from "@/lib/checkout-validation";
 import { getCurrentVendor } from "@/lib/tenant";
+import { scopedOrderIdempotencyKey } from "@/lib/order-idempotency";
 
 export type OrderLineInput = {
   unitId: string;
@@ -44,6 +45,27 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Please sign in to place your order." };
+
+  const idempotencyKey = scopedOrderIdempotencyKey(user.id, formData.get("idempotencyToken"));
+  if (!idempotencyKey) return { error: "Your checkout session expired. Refresh checkout and try again." };
+
+  const currentVendor = await getCurrentVendor();
+  const { data: existingOrder, error: idempotencyLookupError } = await supabase
+    .from("orders")
+    .select("order_number, customer_id, vendor_id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (idempotencyLookupError) {
+    console.error("[checkout] idempotency lookup failed:", idempotencyLookupError.message);
+    return { error: "We couldn't safely verify this checkout attempt. Please refresh and try again." };
+  }
+  if (existingOrder) {
+    if (existingOrder.customer_id === user.id && existingOrder.vendor_id === currentVendor.id) {
+      return { success: true, orderNumber: existingOrder.order_number };
+    }
+    return { error: "This checkout attempt has already been used. Refresh checkout to start a new order." };
+  }
+
   const lineValidationError = validateCheckoutLines(lines);
   if (lineValidationError) return { error: lineValidationError };
   if (lines.length === 0) return { error: "Your cart is empty." };
@@ -92,7 +114,6 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // Reject the entire submission if even one submitted unit disappeared or
   // was invalid. Without this check, the loops below silently omit unresolved
   // IDs and can create an order for only part of the customer's cart.
-  const currentVendor = await getCurrentVendor();
   const resolvedUnits = [
     ...normalizedBoxSizes.map((unit) => ({
       id: unit.id,
@@ -229,11 +250,17 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
     }
   }
 
-  const { data: order, error: insertError } = await supabase
+  // Direct browser-role inserts to public.orders are disabled by the
+  // accompanying migration. Only this validated server action may create a
+  // customer order, using the server-only service-role client after all
+  // tenant, price, payment, and delivery checks have completed.
+  const adminClient = createAdminClient();
+  const { data: order, error: insertError } = await adminClient
     .from("orders")
     .insert({
       customer_id: user.id,
       vendor_id: vendorId,
+      idempotency_key: idempotencyKey,
       items: orderItems,
       delivery: { full_name: fullName, phone, email, address, city, postal_code: postalCode || null, notes: notes || null },
       subtotal,
@@ -255,6 +282,24 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
     // failure here means the coupon's usage_count drifts from reality with
     // no trace -- log it so it's at least visible in server logs.
     if (incrementError) console.error(`increment_coupon_usage failed for ${appliedCouponCode} (order ${order?.order_number}):`, incrementError.message);
+  }
+  if (insertError?.code === "23505") {
+    // Two requests with the same form token can race past the initial lookup.
+    // The unique database index elects one winner; return its order without
+    // re-running email/coupon/stock side effects in the losing request.
+    const { data: retryOrder, error: retryLookupError } = await supabase
+      .from("orders")
+      .select("order_number, customer_id, vendor_id, discount_code")
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
+    if (!retryLookupError && retryOrder &&
+        retryOrder.customer_id === user.id &&
+        retryOrder.vendor_id === vendorId) {
+      if (welcomeDiscountGranted && retryOrder.discount_code !== "WELCOME") {
+        await supabase.rpc("unclaim_welcome_discount");
+      }
+      return { success: true, orderNumber: retryOrder.order_number };
+    }
   }
   if (insertError || !order) {
     // claim_welcome_discount() above already burned the one-time discount
@@ -278,7 +323,6 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
   // must never stall the "Placing Order..." UI the customer is staring at,
   // since the order itself has already succeeded by this point.
   // Resolve the owning vendor's notification address from trusted database records.
-  const adminClient = createAdminClient();
   const [{ data: vendor }, { data: vendorOwner }] = await Promise.all([
     adminClient.from("vendors").select("name, contact_email, email, subdomain").eq("id", vendorId).maybeSingle(),
     adminClient.from("vendor_admins").select("email").eq("vendor_id", vendorId).eq("role", "owner").limit(1).maybeSingle(),
