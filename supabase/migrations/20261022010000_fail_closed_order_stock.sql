@@ -35,7 +35,7 @@ DECLARE
   v_new_qty integer;
   v_vendor_id uuid;
 BEGIN
-  IF p_direction NOT IN (-1, 1) THEN
+  IF p_direction IS NULL OR p_direction NOT IN (-1, 1) THEN
     RAISE EXCEPTION 'invalid stock adjustment direction' USING ERRCODE = '22023';
   END IF;
 
@@ -88,6 +88,15 @@ BEGIN
       IF v_simple.vendor_id IS DISTINCT FROM v_vendor_id THEN
         RAISE EXCEPTION 'order item belongs to a different vendor' USING ERRCODE = '23514';
       END IF;
+      IF v_simple.stock_qty IS NULL THEN
+        IF p_direction = -1 THEN
+          RAISE EXCEPTION 'stock is not configured for product %', v_product_id USING ERRCODE = 'P0001';
+        END IF;
+        INSERT INTO public.order_item_stock_warnings (order_id, vendor_id, item, reason)
+        VALUES (p_order_id, v_vendor_id, item, 'cannot restock simple-model product with NULL stock_qty');
+        CONTINUE;
+      END IF;
+
       IF p_direction = -1 AND v_simple.stock_qty < v_qty THEN
         RAISE EXCEPTION 'insufficient stock for product %: requested %, available %', v_product_id, v_qty, v_simple.stock_qty USING ERRCODE = 'P0001';
       END IF;
@@ -119,6 +128,15 @@ BEGIN
          (v_product_id IS NOT NULL AND v_variant.product_id IS DISTINCT FROM v_product_id) THEN
         RAISE EXCEPTION 'order variant belongs to a different vendor or product' USING ERRCODE = '23514';
       END IF;
+      IF v_variant.stock_qty IS NULL THEN
+        IF p_direction = -1 THEN
+          RAISE EXCEPTION 'stock is not configured for variant %', v_variant_id USING ERRCODE = 'P0001';
+        END IF;
+        INSERT INTO public.order_item_stock_warnings (order_id, vendor_id, item, reason)
+        VALUES (p_order_id, v_vendor_id, item, 'cannot restock variant with NULL stock_qty');
+        CONTINUE;
+      END IF;
+
       IF p_direction = -1 AND v_variant.stock_qty < v_qty THEN
         RAISE EXCEPTION 'insufficient stock for variant %: requested %, available %', v_variant_id, v_qty, v_variant.stock_qty USING ERRCODE = 'P0001';
       END IF;
@@ -166,8 +184,17 @@ BEGIN
        (v_product_id IS NOT NULL AND v_box.product_id IS DISTINCT FROM v_product_id) THEN
       RAISE EXCEPTION 'order box size belongs to a different vendor or product' USING ERRCODE = '23514';
     END IF;
+    IF v_box.stock_qty IS NULL THEN
+      IF p_direction = -1 THEN
+        RAISE EXCEPTION 'stock is not configured for box size %', v_box.id USING ERRCODE = 'P0001';
+      END IF;
+      INSERT INTO public.order_item_stock_warnings (order_id, vendor_id, item, reason)
+      VALUES (p_order_id, v_vendor_id, item, 'cannot restock box size with NULL stock_qty');
+      CONTINUE;
+    END IF;
+
     IF p_direction = -1 AND v_box.stock_qty < v_qty THEN
-      RAISE EXCEPTION 'insufficient stock for box size %: requested %, available %', v_variant_id, v_qty, v_box.stock_qty USING ERRCODE = 'P0001';
+      RAISE EXCEPTION 'insufficient stock for box size %: requested %, available %', v_box.id, v_qty, v_box.stock_qty USING ERRCODE = 'P0001';
     END IF;
 
     v_new_qty := v_box.stock_qty + (p_direction * v_qty);
