@@ -200,4 +200,53 @@ BEGIN
   END IF;
 END $$;
 
+-- 9. Duplicate idempotency keys cannot create a second order or decrement stock twice.
+DO $wa01_idempotency$
+DECLARE v_state text; v_stock_before integer; v_key_count integer;
+BEGIN
+  SELECT stock_qty INTO v_stock_before FROM public.products WHERE id='11111111-1111-4111-8111-111111111111';
+  INSERT INTO public.orders(id,vendor_id,items,idempotency_key) VALUES
+   ('10000000-0000-4000-8000-000000000012','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '[{"product_id":"11111111-1111-4111-8111-111111111111","qty":1,"variant_source":"simple"}]',
+    'customer-session:a6c1c1f1-6e90-4ab2-9d94-b7a5ec96b33e');
+  BEGIN
+    INSERT INTO public.orders(id,vendor_id,items,idempotency_key) VALUES
+     ('10000000-0000-4000-8000-000000000013','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '[{"product_id":"11111111-1111-4111-8111-111111111111","qty":1,"variant_source":"simple"}]',
+      'customer-session:a6c1c1f1-6e90-4ab2-9d94-b7a5ec96b33e');
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
+  END;
+  IF v_state IS DISTINCT FROM '23505' THEN RAISE EXCEPTION 'expected unique-key violation 23505; got %',v_state; END IF;
+  SELECT count(*) INTO v_key_count FROM public.orders
+    WHERE idempotency_key='customer-session:a6c1c1f1-6e90-4ab2-9d94-b7a5ec96b33e';
+  IF v_key_count <> 1 THEN RAISE EXCEPTION 'duplicate idempotency key persisted % orders',v_key_count; END IF;
+  IF EXISTS (SELECT 1 FROM public.orders WHERE id='10000000-0000-4000-8000-000000000013') THEN
+    RAISE EXCEPTION 'duplicate idempotency order persisted';
+  END IF;
+  IF (SELECT stock_qty FROM public.products WHERE id='11111111-1111-4111-8111-111111111111') <> v_stock_before - 1 THEN
+    RAISE EXCEPTION 'duplicate idempotency attempt changed stock more than once';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.inventory_audit_log WHERE order_id='10000000-0000-4000-8000-000000000013') THEN
+    RAISE EXCEPTION 'duplicate idempotency attempt wrote stock audit rows';
+  END IF;
+END $wa01_idempotency$;
+
+-- 10. Refunding a normally decrementing order restores stock exactly once.
+DO $wa01_refund$
+DECLARE v_stock_before integer;
+BEGIN
+  SELECT stock_qty INTO v_stock_before FROM public.products WHERE id='11111111-1111-4111-8111-111111111111';
+  INSERT INTO public.orders(id,vendor_id,items) VALUES
+   ('10000000-0000-4000-8000-000000000014','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '[{"product_id":"11111111-1111-4111-8111-111111111111","qty":1,"variant_source":"simple"}]');
+  UPDATE public.orders SET status='refunded' WHERE id='10000000-0000-4000-8000-000000000014';
+  UPDATE public.orders SET status='refunded' WHERE id='10000000-0000-4000-8000-000000000014';
+  IF (SELECT stock_qty FROM public.products WHERE id='11111111-1111-4111-8111-111111111111') <> v_stock_before THEN
+    RAISE EXCEPTION 'refund did not restore stock exactly once';
+  END IF;
+  IF (SELECT count(*) FROM public.inventory_audit_log WHERE order_id='10000000-0000-4000-8000-000000000014') <> 2 THEN
+    RAISE EXCEPTION 'expected exactly one decrement and one refund restock audit entry';
+  END IF;
+END $wa01_refund$;
+
 SELECT 'WA-01 stock regression tests passed' AS result;
