@@ -75,7 +75,7 @@ jobs:
       - name: Create synthetic database schema
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/wa01_stock_schema.sql
       - name: Apply the stock migration under test
-        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261022190000_fail_closed_order_stock.sql
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261022180345_fail_closed_order_stock_races.sql
       - name: Run stock regression and transaction rollback tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/wa01_stock_integrity.sql
       - name: Run concurrent last-unit test
