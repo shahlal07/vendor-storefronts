@@ -4,18 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useUser } from "@/lib/use-user";
-import { getOrderByNumberClient, getOrdersByContactClient } from "@/lib/queries/orders-client";
+import { getOrderByNumberClient } from "@/lib/queries/orders-client";
+import { lookupGuestOrder, type TrackedOrder } from "@/app/track/actions";
 import { formatPKR } from "@/lib/format";
 import { PaymentProofPanel } from "@/components/payment-proof-panel";
 import { getOrderItemVariantLabel } from "@/lib/order-item";
 import { googleMapsUrl } from "@/lib/maps";
 import { orderTrackingWhatsAppLink } from "@/lib/whatsapp";
 import { WhatsAppIcon } from "@/components/contact-icons";
-import type { Tables } from "@/lib/supabase/types";
 
 const MANUAL_PAYMENT_METHODS = ["bank", "easypaisa", "jazzcash"];
 
-type Order = Tables<"orders">;
+type Order = TrackedOrder;
 
 const STATUS_STEPS = ["pending", "confirmed", "packed", "shipped", "delivered"] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -32,13 +32,14 @@ const STATUS_LABELS: Record<string, string> = {
 // both are still real history, just not what a guest is checking on first.
 const TERMINAL_STATUSES = ["delivered", "cancelled", "refunded"];
 
-type TrackMethod = "order" | "contact";
+type TrackMethod = "order" | "guest";
 
-export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string | null; vendorId: string }) {
+export function TrackForm({ whatsappNumber }: { whatsappNumber: string | null }) {
   const searchParams = useSearchParams();
   const { user, loading: userLoading } = useUser();
   const [method, setMethod] = useState<TrackMethod>("order");
   const [query, setQuery] = useState(searchParams.get("order") ?? "");
+  const [contact, setContact] = useState("");
   // undefined = no search performed yet; null = searched, not found; an
   // array = found (may be a single-element array for the "order number"
   // method). Deriving "searched" from this instead of a separate boolean
@@ -66,13 +67,10 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
     }, 300);
   }
 
-  // One box, one method at a time: "Order Number" resolves a signed-in
-  // customer's own order via RLS (no account = nothing to find, since a bare
-  // order number is a guessable sequential id and isn't proof of ownership
-  // on its own). "Email or Phone" needs no account or order number at all --
-  // it's a security-definer RPC that returns EVERY order matching that
-  // contact (not just the latest), digit-normalized so "+92 321 9876543" and
-  // "03219876543" both match the same stored phone.
+  // Signed-in customers can look up their own order through RLS using the
+  // order number. Guests must supply BOTH the order number and the checkout
+  // email/phone; contact-only lookup exposed every order tied to a known
+  // phone/email and returned private delivery/payment details.
   async function search(value: string) {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -81,10 +79,15 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
     if (method === "order") {
       const result = await getOrderByNumberClient(trimmed.toUpperCase());
       if (requestId === latestRequestId.current) setOrders(result ? [result] : null);
-    } else {
-      const result = await getOrdersByContactClient(trimmed, vendorId);
-      if (requestId === latestRequestId.current) setOrders(result.length > 0 ? result : null);
+      return;
     }
+    const trimmedContact = contact.trim();
+    if (!trimmedContact) {
+      setOrders(null);
+      return;
+    }
+    const result = await lookupGuestOrder(trimmed.toUpperCase(), trimmedContact);
+    if (requestId === latestRequestId.current) setOrders(result ? [result] : null);
   }
 
   useEffect(() => {
@@ -113,7 +116,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
         {(
           [
             { id: "order", label: "Order Number" },
-            { id: "contact", label: "Email or Phone" },
+            { id: "guest", label: "Guest Lookup" },
           ] as const
         ).map((opt) => (
           <button
@@ -123,6 +126,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
               setMethod(opt.id);
               setOrders(undefined);
               setQuery("");
+              setContact("");
             }}
             className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
               method === opt.id
@@ -140,7 +144,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
           e.preventDefault();
           search(query);
         }}
-        className="flex gap-3 mb-8"
+        className="flex flex-col sm:flex-row gap-3 mb-8"
       >
         <input
           ref={searchInputRef}
@@ -148,12 +152,23 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={handleSearchFocus}
-          placeholder={method === "order" ? "Order number, e.g. ORD-100001" : "Email or phone used at checkout"}
+          placeholder="Order number, e.g. ORD-100001"
           className="flex-1 min-w-0 scroll-mt-[calc(var(--nav-height)+1rem)] border-[1.5px] border-border-subtle rounded-full px-5 py-3 text-sm bg-surface focus-visible:outline-none focus-visible:border-mango-orange transition-colors"
         />
+        {method === "guest" && (
+          <input
+            type="text"
+            value={contact}
+            onChange={(e) => setContact(e.target.value)}
+            placeholder="Checkout email or phone"
+            aria-label="Checkout email or phone"
+            autoComplete="off"
+            className="flex-1 min-w-0 border-[1.5px] border-border-subtle rounded-full px-5 py-3 text-sm bg-surface focus-visible:outline-none focus-visible:border-mango-orange transition-colors"
+          />
+        )}
         <button
           type="submit"
-          className="shrink-0 bg-mango-orange text-white font-semibold px-6 py-3 rounded-full transition-transform hover:-translate-y-0.5"
+          className="w-full sm:w-auto shrink-0 bg-mango-orange text-white font-semibold px-6 py-3 rounded-full transition-transform hover:-translate-y-0.5"
         >
           Track
         </button>
@@ -162,10 +177,10 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
       {method === "order" && !user && (
         <p className="text-center text-xs text-ink-light -mt-5 mb-8">
           Tracking by order number needs you to be signed in. Guest?{" "}
-          <button type="button" onClick={() => setMethod("contact")} className="text-mango-orange font-semibold">
-            Track by email or phone
+          <button type="button" onClick={() => setMethod("guest")} className="text-mango-orange font-semibold">
+            use guest lookup with your order number and checkout contact
           </button>{" "}
-          instead, or{" "}
+          or{" "}
           <Link href={`/login?returnTo=${encodeURIComponent(`/track${query ? `?order=${query}` : ""}`)}`} className="text-mango-orange font-semibold">
             sign in
           </Link>
@@ -177,7 +192,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
         <p className="text-center text-ink-light py-10">
           {method === "order"
             ? "No order found with that number on your account."
-            : "No order found with that email or phone."}
+            : "No order found. Check the order number and checkout email/phone."}
         </p>
       )}
 
@@ -187,7 +202,7 @@ export function TrackForm({ whatsappNumber, vendorId }: { whatsappNumber: string
         <div>
           {visibleOrders.length === 0 ? (
             <p className="text-center text-ink-light py-10">
-              No open orders on this contact.{" "}
+              No open orders found.{" "}
               <button type="button" onClick={() => setShowHistory(true)} className="text-mango-orange font-semibold">
                 Show full order history ({historyOrders.length})
               </button>
