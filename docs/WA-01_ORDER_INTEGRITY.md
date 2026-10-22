@@ -1,7 +1,7 @@
 # WA-01 — Canonical order integrity and rollout contract
 
-Status: implementation review / staging verification pending  
-Stock validation PR: pending creation from branch `feature/wa-01-stock-integrity-only`
+Status: **Phase 1 order-engine hardening complete** (2026-10-22). Code and stock migration are merged; production grants/function were read back; the zero-cost CI integration test passed.  
+Stock validation: [merged PR #13](https://github.com/shahlal07/vendor-storefronts/pull/13). Production migration history version: `20261022180345` (`20261022_fail_closed_order_stock_races`).
 
 ## Scope
 
@@ -12,8 +12,8 @@ WA-01 hardens the *existing* order system before an official WhatsApp adapter is
 - The checkout form creates and retains an opaque UUIDv4 idempotency token for retries in the current tab. The server scopes it to the current Supabase identity and writes the resulting key to the existing unique `orders.idempotency_key` field.
 - A retry with the same identity, key and vendor returns the pre-existing order without repeating the application-level address, coupon-usage or email side effects. Concurrent submissions are arbitrated by the existing database unique index; the losing request reads the winner and returns it.
 - The only canonical storefront order insert in the current storefront flow goes through the server action after server-side customer, tenant, line, database-price, shipping, discount and payment checks. Direct `anon`/`authenticated` INSERT privileges are handled separately by [PR #12](https://github.com/shahlal07/vendor-storefronts/pull/12).
-- The proposed stock function locks each stock row, validates item/vendor/product ownership, rejects malformed decrement requests and raises on insufficient or unconfigured stock. An exception in the order-insert trigger should roll the whole insert transaction back, including earlier item decrements and other transactional trigger effects. For cancellation/refund, an unresolved or NULL-stock item is recorded as a warning rather than making a previously valid status transition impossible.
-- Unit tests cover malformed keys and identity-scoping behavior. GitHub Actions verifies the TypeScript app and build; the database migration is not exercised by those application checks.
+- The deployed stock function locks each stock row, validates item/vendor/product ownership, rejects malformed decrement requests and raises on insufficient or unconfigured stock. Synthetic PostgreSQL integration tests proved an order-insert exception rolls the whole insert transaction back, including earlier item decrements and stock-audit side effects. For cancellation/refund, an unresolved or NULL-stock legacy item is recorded as a warning rather than blocking the status transition.
+- Unit tests cover malformed checkout tokens, normalization and customer scoping. GitHub Actions run [#39828498738](https://github.com/shahlal07/vendor-storefronts/actions/runs/39828498738) passed both the app-quality job and the PostgreSQL migration integration job. The synthetic database suite applies the exact stock migration in PostgreSQL 16 and exercises the real function.
 
 ## Identity contract for WhatsApp conversion
 
@@ -30,25 +30,37 @@ WA-01 hardens the *existing* order system before an official WhatsApp adapter is
 - The live `platform_pricing` row is presently Rs 20 per order and Rs 7,000 per month. Some shared planning notes say Rs 5,999 per month. This branch intentionally changes neither amount. Treat Rs 7,000 as the active configured price in production until Finance approves a change; reconcile the stale documented price before editing plan prices or implementing monthly billing changes.
 - Retries must not generate a second order or a second set of order-level fee snapshots. Incomplete WhatsApp intents must never enter monthly settlement aggregates.
 
-## Required database and rollout verification
+## Acceptance evidence — 2026-10-22
 
-**Do not apply the stock-function migration to production until it has passed in a non-production database.** The active Supabase project examined during WA-01 is production, so concurrency/rollback checks below are release gates, not evidence of completion. Direct browser order INSERT lockdown is separate in PR #12.
+**The stock migration is applied to the active Supabase project** `eznxsosvsgkhexbjoolh` under migration version `20261022180345`. A read-only production read-back confirmed the deployed function has row locks, insufficient-stock and vendor/product checks, remains SECURITY DEFINER, and is executable only by the database owner and `service_role`. Existing order-insert decrement and cancellation/refund-restock triggers still point to the expected trigger functions.
 
-| Check | Procedure | Required result |
+The test database runs entirely in a disposable PostgreSQL 16 service inside standard GitHub-hosted CI on this public repository. It uses synthetic rows and does not create or use a paid Supabase branch.
+
+| Acceptance check | Result | Evidence |
 |---|---|---|
-| Direct customer insert is denied | Covered separately by [PR #12](https://github.com/shahlal07/vendor-storefronts/pull/12); verify direct REST INSERT after that migration | Permission denied; no order/trigger side effects |
-| Canonical checkout still works | Place a normal COD test order through the deployed server action | One canonical order, expected database fee snapshots and exactly one stock decrement |
-| Duplicate submission | Submit the same form token twice sequentially and in parallel | One `orders` row; both callers resolve to the same order number |
-| Concurrent last item | Set a test SKU stock to 1; concurrently insert two separate orders requesting 1 each | One succeeds; the other fails; final stock is 0 and there is one successful order |
-| Multi-line rollback | First line has stock; second line is out of stock; submit together | Entire order transaction rolls back; first line stock and all order-trigger records are unchanged |
-| NULL stock | Try decrementing a test SKU whose stock is NULL | Order fails closed; no order persists |
-| Wrong vendor/product | Test an item ID belonging to a different product/vendor | Order insert rolls back and stock remains untouched |
-| Cancellation/refund replay | Cancel/refund one order and repeat status update | Stock and fee credit are restored once only, under existing trigger/adjustment dedupe logic |
-| Tenant isolation | Two test vendors and two test customer identities | One vendor/customer cannot resolve another vendor's intent/order |
-| Retry side effects | Replay an already-created checkout token | Existing order returned; no second coupon usage increment or duplicate application email |
+| Direct browser-role order INSERT is denied | **PASS** | Production privilege read-back: `anon` and `authenticated` INSERT privileges false; customer INSERT policy absent; `service_role` INSERT true |
+| Guest order lookup / rate-limit RPCs restricted | **PASS** | Production ACL read-back after storefront PR #9/#10 and vendor-admins PR #9: browser-role execution false; intended `service_role` execution true |
+| Simple product, variant and box-size decrements | **PASS** | PostgreSQL integration job |
+| Shortage fails with no partial stock/order/audit side effects | **PASS** | PostgreSQL integration job |
+| Multi-line order rolls back earlier stock updates when a later line is unavailable | **PASS** | PostgreSQL integration job |
+| NULL stock, invalid quantity, wrong vendor/product fail closed | **PASS** | PostgreSQL integration job |
+| Legacy unresolved item still allows cancel/refund with a warning | **PASS** | PostgreSQL integration job |
+| Cancellation/refund stock restoration happens once | **PASS** | PostgreSQL integration job |
+| Two concurrent orders racing for the last unit | **PASS** | Two overlapping inserts; exactly one order and audit persist; final test stock is zero |
+| Duplicate idempotency key cannot create another order or decrement stock twice | **PASS** | PostgreSQL integration job; existing unique `orders.idempotency_key` index remains in production |
+| Checkout token rejects malformed values and is scoped per customer | **PASS** | Vitest helper tests |
+| Full authenticated customer checkout E2E against production | **NOT RUN** | No synthetic order was placed in production because it would create a real order and mutate inventory; app CI/build and READY production deployment are verified instead |
+| Signed Meta webhook to verified WhatsApp sender identity | **LATER PHASE** | WhatsApp provider adapter/intent conversion are not implemented in WA-01 |
 
-Record the environment, test fixture IDs, SQL output, CI run, deployment SHA and migration result in the PR before removing its draft status. Do not run the inventory scenarios against the live store's real products or customer orders.
+## Fee, identity and release boundary
+
+- Preserve the existing fee split: `platform_fee_amount`/percentage snapshot (marketplace commission) and `vendor_plan_fee_amount` (vendor plan fee per eligible order). The stock migration does not alter fee computation, settlement logic, prices, or any order/stock row.
+- The live `platform_pricing` row is Rs 20/order and Rs 7,000/month. Treat Rs 7,000 as the current runtime amount; older Rs 5,999 planning notes do not authorize a price change. Reconcile the stale note in the separate Finance/pricing task before any billing change.
+- The current settlement generator includes a pending order unless order status is cancelled/refunded or payment status is failed/refunded. This existing behavior was preserved, not silently changed.
+- A click, link-out, inquiry, draft, abandoned conversation or invalid WhatsApp intent is never a canonical order and must not incur order fees or decrement stock. Only explicit customer confirmation after fresh tenant/catalog/price/stock/payment validation can create one row in `public.orders`; its existing triggers remain the single source for stock, fee snapshots and refunds.
+- Do not place synthetic/fake orders in production as a smoke test. Use the free CI database for transactional stock tests. Full authenticated checkout E2E and Meta send/receive verification are separate rollout gates before live WhatsApp order conversion.
+- WhatsApp identity must later map a signed Meta `wa_id` to a verified/existing Auth identity or to a deliberately designed secure guest identity. Never fabricate `orders.customer_id`, accept a browser-supplied vendor/customer identity as authority, or replace durable Meta event-to-order uniqueness with a web checkout token.
 
 ## Known boundary / next phase
 
-This stock-guard branch does not include Meta webhooks or WhatsApp intent conversion. Direct order INSERT locking and the application retry key are handled separately in PR #12. The next phase must add durable webhook receipt/deduplication and a transaction-safe intent-to-order association; a database unique idempotency key on web checkout alone cannot cover a process crash between a WhatsApp intent confirmation and its canonical order commit.
+Phase 1 deliberately does not include Meta webhooks, connected-number onboarding or WhatsApp intent conversion. Next, WA-02 builds the shared/vendor-number registry, WA-03 adds signed durable Meta webhooks, and WA-04 implements verified sender identity and an atomic intent-to-canonical-order conversion boundary. Web checkout idempotency alone is not sufficient to deduplicate Meta events after a process crash.
