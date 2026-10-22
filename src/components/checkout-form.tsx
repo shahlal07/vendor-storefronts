@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useActionState } from "react";
+import { useEffect, useRef, useState, useActionState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -22,6 +22,26 @@ import { isCheckoutIdempotencyToken } from "@/lib/order-idempotency";
 
 const PENDING_CHECKOUT_KEY = "theaamghar_pending_checkout";
 const CHECKOUT_IDEMPOTENCY_SESSION_KEY = "nashemann_checkout_idempotency_v1";
+const CHECKOUT_IDEMPOTENCY_EVENT = "nashemann:checkout-idempotency-change";
+let volatileCheckoutIdempotencyToken = "";
+
+function subscribeCheckoutIdempotency(onChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(CHECKOUT_IDEMPOTENCY_EVENT, onChange);
+  return () => window.removeEventListener(CHECKOUT_IDEMPOTENCY_EVENT, onChange);
+}
+
+function getCheckoutIdempotencySnapshot(): string {
+  try {
+    const stored = window.sessionStorage.getItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY);
+    if (isCheckoutIdempotencyToken(stored)) return stored;
+  } catch {}
+  return volatileCheckoutIdempotencyToken;
+}
+
+function getServerCheckoutIdempotencySnapshot(): string {
+  return "";
+}
 
 type PendingCheckout = { lines: OrderLineInput[]; form: Record<string, string> };
 
@@ -45,7 +65,11 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const guestSessionRef = useRef(false);
-  const [idempotencyToken, setIdempotencyToken] = useState("");
+  const idempotencyToken = useSyncExternalStore(
+    subscribeCheckoutIdempotency,
+    getCheckoutIdempotencySnapshot,
+    getServerCheckoutIdempotencySnapshot
+  );
 
   const lines: OrderLineInput[] = buynowUnitId ? [{ unitId: buynowUnitId, source: buynowSource, qty: buynowQty }] : cartItems;
   const [resolvedLines, setResolvedLines] = useState<CartLine[] | null>(null);
@@ -74,16 +98,23 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
   const boundPlaceOrder = async (_prev: PlaceOrderState, formData: FormData) => placeOrder(submittableLines, formData);
   const [state, formAction, pending] = useActionState<PlaceOrderState, FormData>(boundPlaceOrder, undefined);
 
-  // Keep the same opaque key across retry/reload in this tab. The server
-  // scopes it to the authenticated (including anonymous) Supabase user.
+  // Keep the same opaque key across retry/reload in this tab. The external
+  // store notifies React after sessionStorage is updated, avoiding cascading
+  // state updates from an effect while keeping SSR hydration deterministic.
   useEffect(() => {
     try {
       const stored = window.sessionStorage.getItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY);
-      const token = isCheckoutIdempotencyToken(stored) ? stored : window.crypto.randomUUID();
-      window.sessionStorage.setItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY, token);
-      setIdempotencyToken(token);
+      if (!isCheckoutIdempotencyToken(stored)) {
+        const token = window.crypto.randomUUID();
+        volatileCheckoutIdempotencyToken = token;
+        window.sessionStorage.setItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY, token);
+        window.dispatchEvent(new Event(CHECKOUT_IDEMPOTENCY_EVENT));
+      }
     } catch {
-      setIdempotencyToken(window.crypto.randomUUID());
+      if (!isCheckoutIdempotencyToken(volatileCheckoutIdempotencyToken)) {
+        volatileCheckoutIdempotencyToken = window.crypto.randomUUID();
+        window.dispatchEvent(new Event(CHECKOUT_IDEMPOTENCY_EVENT));
+      }
     }
   }, []);
 
@@ -228,10 +259,11 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
       // Rotate before leaving so returning to checkout starts a fresh order
       // instead of replaying the just-completed order token.
       const nextToken = window.crypto.randomUUID();
+      volatileCheckoutIdempotencyToken = nextToken;
       try {
         window.sessionStorage.setItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY, nextToken);
       } catch {}
-      setIdempotencyToken(nextToken);
+      window.dispatchEvent(new Event(CHECKOUT_IDEMPOTENCY_EVENT));
       const tokenField = formRef.current?.elements.namedItem("idempotencyToken");
       if (tokenField instanceof HTMLInputElement) tokenField.value = nextToken;
       window.location.href = `/track?order=${state.orderNumber}`;
