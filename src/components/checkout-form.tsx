@@ -18,8 +18,10 @@ import type { SiteContent } from "@/lib/queries/site-content";
 import { PaymentMethodSelector, type PaymentMethodValue } from "@/components/payment-method-selector";
 import { BoughtTogetherStrip } from "@/components/bought-together-strip";
 import type { Tables } from "@/lib/supabase/types";
+import { isCheckoutIdempotencyToken } from "@/lib/order-idempotency";
 
 const PENDING_CHECKOUT_KEY = "theaamghar_pending_checkout";
+const CHECKOUT_IDEMPOTENCY_SESSION_KEY = "nashemann_checkout_idempotency_v1";
 
 type PendingCheckout = { lines: OrderLineInput[]; form: Record<string, string> };
 
@@ -43,6 +45,7 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const guestSessionRef = useRef(false);
+  const [idempotencyToken, setIdempotencyToken] = useState("");
 
   const lines: OrderLineInput[] = buynowUnitId ? [{ unitId: buynowUnitId, source: buynowSource, qty: buynowQty }] : cartItems;
   const [resolvedLines, setResolvedLines] = useState<CartLine[] | null>(null);
@@ -70,6 +73,19 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
   const submittableLines = resolvedLines ? lines.filter((l) => resolvedLines.some((rl) => rl.unitId === l.unitId)) : lines;
   const boundPlaceOrder = async (_prev: PlaceOrderState, formData: FormData) => placeOrder(submittableLines, formData);
   const [state, formAction, pending] = useActionState<PlaceOrderState, FormData>(boundPlaceOrder, undefined);
+
+  // Keep the same opaque key across retry/reload in this tab. The server
+  // scopes it to the authenticated (including anonymous) Supabase user.
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY);
+      const token = isCheckoutIdempotencyToken(stored) ? stored : window.crypto.randomUUID();
+      window.sessionStorage.setItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY, token);
+      setIdempotencyToken(token);
+    } catch {
+      setIdempotencyToken(window.crypto.randomUUID());
+    }
+  }, []);
 
   useEffect(() => {
     resolveCartLines(lines).then(setResolvedLines);
@@ -209,6 +225,15 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
   useEffect(() => {
     if (state && "success" in state && state.success) {
       if (!buynowUnitId) clearCart();
+      // Rotate before leaving so returning to checkout starts a fresh order
+      // instead of replaying the just-completed order token.
+      const nextToken = window.crypto.randomUUID();
+      try {
+        window.sessionStorage.setItem(CHECKOUT_IDEMPOTENCY_SESSION_KEY, nextToken);
+      } catch {}
+      setIdempotencyToken(nextToken);
+      const tokenField = formRef.current?.elements.namedItem("idempotencyToken");
+      if (tokenField instanceof HTMLInputElement) tokenField.value = nextToken;
       window.location.href = `/track?order=${state.orderNumber}`;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,6 +274,7 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
       noValidate
       className="grid gap-5 md:grid-cols-[1.2fr_1fr] md:gap-x-10 md:gap-y-0 md:items-start"
     >
+      <input type="hidden" name="idempotencyToken" value={idempotencyToken} />
       <div className="order-1 md:order-1 md:col-start-1 md:row-start-1 min-w-0">
         <div className="bg-surface border border-border-subtle rounded-2xl shadow-brand-sm p-6">
           <h2 className="font-serif text-xl font-bold mb-4">📍 Delivery Details</h2>
@@ -365,7 +391,7 @@ export function CheckoutForm({ emptyStates }: { emptyStates: SiteContent["emptyS
 
       <div className="order-5 md:order-5 md:col-start-1 md:row-start-4 min-w-0">
         {state && "error" in state && <p className="text-sm text-error mb-4">{state.error}</p>}
-        <button type="submit" disabled={pending || resolvedLines === null || shippingResolving} className="w-full bg-mango-orange text-white font-semibold py-4 rounded-full transition-transform hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0">
+        <button type="submit" disabled={pending || !idempotencyToken || resolvedLines === null || shippingResolving} className="w-full bg-mango-orange text-white font-semibold py-4 rounded-full transition-transform hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0">
           {pending ? "Placing Order…" : `${buynowUnitId ? "Buy Now" : "Place Order"} — ${formatPKR(total)}`}
         </button>
         {!user && !userLoading && (
