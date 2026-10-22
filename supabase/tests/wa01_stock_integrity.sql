@@ -201,7 +201,7 @@ BEGIN
 END $$;
 
 -- 9. Duplicate idempotency keys cannot create a second order or decrement stock twice.
-DO $
+DO $wa01_idempotency$
 DECLARE v_state text; v_stock_before integer; v_key_count integer;
 BEGIN
   SELECT stock_qty INTO v_stock_before FROM public.products WHERE id='11111111-1111-4111-8111-111111111111';
@@ -229,10 +229,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.inventory_audit_log WHERE order_id='10000000-0000-4000-8000-000000000013') THEN
     RAISE EXCEPTION 'duplicate idempotency attempt wrote stock audit rows';
   END IF;
-END $;
+END $wa01_idempotency$;
 
 -- 10. Refunding a normally decrementing order restores stock exactly once.
-DO $
+DO $wa01_refund$
 DECLARE v_stock_before integer;
 BEGIN
   SELECT stock_qty INTO v_stock_before FROM public.products WHERE id='11111111-1111-4111-8111-111111111111';
@@ -247,6 +247,6 @@ BEGIN
   IF (SELECT count(*) FROM public.inventory_audit_log WHERE order_id='10000000-0000-4000-8000-000000000014') <> 2 THEN
     RAISE EXCEPTION 'expected exactly one decrement and one refund restock audit entry';
   END IF;
-END $;
+END $wa01_refund$;
 
 SELECT 'WA-01 stock regression tests passed' AS result;
