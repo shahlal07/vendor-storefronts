@@ -1,3 +1,12 @@
+-- Direct customer INSERTs must not be possible through Supabase REST:
+-- the customer-facing checkout is a server action that verifies line ownership,
+-- price, shipping, discounts, payment method, and tenant before using the
+-- server-only service-role client. This prevents forged order totals/items and
+-- cross-vendor order creation through a publishable key.
+DROP POLICY IF EXISTS "customers create own orders" ON public.orders;
+REVOKE INSERT ON TABLE public.orders FROM PUBLIC, anon, authenticated;
+GRANT INSERT ON TABLE public.orders TO service_role;
+
 -- Fail closed when an order would consume unavailable inventory.
 -- The existing AFTER INSERT trigger calls this function inside the order's
 -- transaction; any raised exception rolls back the order and all its trigger
