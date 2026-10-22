@@ -67,12 +67,12 @@ BEGIN
       WHERE id = v_product_id
       FOR UPDATE;
 
-      IF v_simple.id IS NULL OR v_simple.stock_qty IS NULL THEN
+      IF v_simple.id IS NULL THEN
         IF p_direction = -1 THEN
           RAISE EXCEPTION 'stock item could not be resolved for order %', p_order_id USING ERRCODE = '23503';
         END IF;
         INSERT INTO public.order_item_stock_warnings (order_id, vendor_id, item, reason)
-        VALUES (p_order_id, v_vendor_id, item, 'simple-model product row not found or has no stock_qty');
+        VALUES (p_order_id, v_vendor_id, item, 'simple-model product row not found');
         CONTINUE;
       END IF;
 
