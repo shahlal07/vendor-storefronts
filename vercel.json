@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/streak-reminder",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-retries",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
