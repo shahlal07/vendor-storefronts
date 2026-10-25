@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWhatsAppOrderUpdate } from "@/lib/whatsapp";
+import { sendWhatsAppOrderUpdate } from "@/lib/whatsapp-notifications";
 import { getShippingRateServer } from "@/lib/queries/shipping-server";
 import { sendOrderConfirmationEmail, sendAdminNewOrderAlert, sendVendorNewOrderEmail, ADMIN_ALERT_EMAIL } from "@/lib/email";
 import { computeDiscount, computeOrderTotal } from "@/lib/discount";
