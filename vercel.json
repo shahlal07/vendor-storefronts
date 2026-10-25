@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/whatsapp-retries",
-      "schedule": "*/5 * * * *"
+      "schedule": "5 13 * * *"
     }
   ]
 }
