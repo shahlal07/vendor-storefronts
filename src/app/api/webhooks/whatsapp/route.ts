@@ -26,12 +26,20 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: "Webhook verification failed" }, { status: 403 });
 }
 
+type MetaStatus = {
+  id?: string;
+  status?: string;
+  timestamp?: string;
+  errors?: Array<{ title?: string; message?: string; code?: number }>;
+};
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   if (!verifySignature(rawBody, request.headers.get("x-hub-signature-256"))) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
-  let payload: { entry?: Array<{ changes?: Array<{ value?: { statuses?: Array<{ id?: string; status?: string; timestamp?: string; errors?: Array<{ title?: string; message?: string; code?: number }> }> } }> }> };
+
+  let payload: { entry?: Array<{ changes?: Array<{ value?: { statuses?: MetaStatus[] } }> }> };
   try {
     payload = JSON.parse(rawBody);
   } catch {
@@ -43,7 +51,15 @@ export async function POST(request: NextRequest) {
   );
   if (!statuses.length) return NextResponse.json({ received: true });
 
-  const supabase = createAdminClient();
+  let supabase;
+  try {
+    supabase = createAdminClient();
+  } catch (error) {
+    console.error("[whatsapp-webhook] Supabase admin client unavailable:", error);
+    return NextResponse.json({ error: "Webhook persistence unavailable" }, { status: 500 });
+  }
+
+  let persistenceFailed = false;
   for (const status of statuses) {
     if (!status.id || !status.status) continue;
     const normalized = status.status.toLowerCase();
@@ -53,15 +69,42 @@ export async function POST(request: NextRequest) {
       : normalized === "failed" ? "failed"
       : null;
     if (!state) continue;
+
+    const { data: existing, error: readError } = await supabase
+      .from("whatsapp_notification_outbox")
+      .select("id, state")
+      .eq("provider_message_id", status.id)
+      .maybeSingle();
+    if (readError) {
+      console.error("[whatsapp-webhook] Could not read notification state:", readError.message);
+      persistenceFailed = true;
+      continue;
+    }
+    // Unknown provider IDs are safe to ignore (e.g. messages sent outside this app).
+    if (!existing) continue;
+
+    // Provider callbacks can arrive out of order. Never downgrade read/delivered
+    // to accepted, and don't overwrite a final read state with a later callback.
+    const rank: Record<string, number> = { queued: 0, sending: 1, accepted: 2, delivered: 3, read: 4, failed: 4 };
+    if ((rank[existing.state] ?? 0) > (rank[state] ?? 0)) continue;
+    if (existing.state === "read") continue;
+
+    const now = new Date().toISOString();
     const update: Record<string, unknown> = {
-      state, provider_status: normalized, updated_at: new Date().toISOString(),
-      ...(state === "delivered" ? { delivered_at: new Date().toISOString() } : {}),
-      ...(state === "read" ? { read_at: new Date().toISOString() } : {}),
+      state, provider_status: normalized, updated_at: now,
+      ...(state === "delivered" ? { delivered_at: now } : {}),
+      ...(state === "read" ? { read_at: now } : {}),
       ...(state === "failed" ? { last_error: (status.errors ?? []).map((e) => e.message || e.title || String(e.code ?? "provider error")).join("; ").slice(0, 1000) || "Meta reported message failure" } : {}),
     };
-    if (state === "accepted") update.accepted_at = new Date().toISOString();
-    const { error } = await supabase.from("whatsapp_notification_outbox").update(update).eq("provider_message_id", status.id);
-    if (error) console.error("[whatsapp-webhook] Could not update notification status:", error.message);
+    if (state === "accepted") update.accepted_at = now;
+    const { error } = await supabase.from("whatsapp_notification_outbox").update(update).eq("id", existing.id);
+    if (error) {
+      console.error("[whatsapp-webhook] Could not update notification status:", error.message);
+      persistenceFailed = true;
+    }
   }
+
+  // Return non-2xx on persistence failure so Meta can retry the callback.
+  if (persistenceFailed) return NextResponse.json({ error: "Could not persist all statuses" }, { status: 500 });
   return NextResponse.json({ received: true });
 }
