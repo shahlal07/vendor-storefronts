@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendWhatsAppOrderUpdate } from "@/lib/whatsapp-notifications";
 import { getShippingRateServer } from "@/lib/queries/shipping-server";
 import { sendOrderConfirmationEmail, sendAdminNewOrderAlert, sendVendorNewOrderEmail, ADMIN_ALERT_EMAIL } from "@/lib/email";
 import { computeDiscount, computeOrderTotal } from "@/lib/discount";
@@ -332,6 +333,13 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
 
   after(async () => {
     await sendOrderConfirmationEmail({ to: email, orderNumber: order.order_number, items: orderItems, subtotal, shippingFee, discountAmount, total, fullName, address, city, paymentMethod });
+    await sendWhatsAppOrderUpdate({
+      phone,
+      orderNumber: order.order_number,
+      status: "Order received",
+      vendorName: vendor?.name || "Nashemann",
+      eventType: "order_received",
+    });
     if (vendorEmail) {
       await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary, vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : "https://admin.nashemann.store/admin/orders" });
     } else {
