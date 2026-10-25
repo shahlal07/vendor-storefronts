@@ -338,6 +338,7 @@ export async function placeOrder(lines: OrderLineInput[], formData: FormData): P
       orderNumber: order.order_number,
       status: "Order received",
       vendorName: vendor?.name || "Nashemann",
+      eventType: "order_received",
     });
     if (vendorEmail) {
       await sendVendorNewOrderEmail({ to: vendorEmail, orderNumber: order.order_number, total, customerName: fullName, customerPhone: phone, address, city, itemsSummary, vendorAdminUrl: vendor?.subdomain ? `https://admin.${vendor.subdomain}.nashemann.store/admin/orders` : "https://admin.nashemann.store/admin/orders" });
