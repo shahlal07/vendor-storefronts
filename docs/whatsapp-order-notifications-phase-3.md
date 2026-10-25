@@ -6,7 +6,7 @@
 - Retries queued/failed rows only when due, caps attempts at six, and uses exponential backoff capped at six hours.
 - Recovers rows left in `sending` for more than ten minutes when they remain below the attempt cap.
 - Persists provider message IDs, acceptance, and failures; unknown delivery status remains distinct from accepted.
-- Adds a Vercel Cron schedule while preserving the existing streak-reminder cron.
+- Adds a daily Vercel Cron schedule while preserving the existing streak-reminder cron. The daily schedule is intentionally compatible with a no-cost Vercel Hobby deployment.
 
 ## Database
 Migration: `supabase/migrations/20261025010000_whatsapp_retry_claim_worker.sql`.
@@ -26,4 +26,4 @@ The same migration was applied to the shared Supabase project. The claim functio
 - Do not enable live sends until Meta credentials, template approval, and recipient opt-in are confirmed.
 
 ## Deployment and cost note
-Vercel Cron frequency limits depend on the Vercel plan. A five-minute schedule may require a paid plan. If this project must stay on Hobby/free, change the schedule to at most once daily or move the scheduler to an available free scheduler. Do not assume a five-minute cron is free.
+The retry worker is scheduled daily at 13:05 UTC to avoid requiring a paid Vercel Cron tier. A row may wait until the next daily run even if its backoff expires earlier. More frequent scheduling requires a compatible paid Vercel plan or a separate scheduler whose free-tier limits have been confirmed.
